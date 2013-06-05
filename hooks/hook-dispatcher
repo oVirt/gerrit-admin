@@ -1,0 +1,337 @@
+#!/usr/bin/env python
+"""
+This dispatcher handles the hook execution
+
+Allowed tags:
+
+Ignore-Hooks
+-----------
+    Ignore-Hooks: hook1, hook2, ...
+    Do not run the given hooks
+
+Run-Only-Hooks
+-----------
+    Run-Only-Hooks: hook1, hook2 ...
+    Run only the given hooks if they exist
+
+"""
+
+import os
+import sys
+import re
+import subprocess
+import argparse
+import logging
+from collections import OrderedDict
+from dulwich.repo import Repo
+
+
+def csv_to_set(csv_string):
+    return set([elem.strip() for elem in csv_string.split(',')])
+
+
+def ignore(ignored_hooks, current_hooks, args):
+    """
+    Return the hooks list without the given hooks
+
+    :param ignored_hooks; csv lis tof the hooks to ignore
+    :param current_hooks: array with the currently available hooks
+    """
+    ignored_hooks = csv_to_set(ignored_hooks)
+    logging.info("    Ignoring the hooks %s", ignored_hooks)
+    for hook in ignored_hooks:
+        match = filter(lambda h: re.match(hook, h), current_hooks)
+        if match:
+            for mhook in match:
+                current_hooks.pop(current_hooks.index(mhook))
+    return current_hooks
+
+
+def run_only(to_run_hooks, current_hooks, args):
+    """
+    Handles the Run-Only tag, removes all the hooks not matching the given
+    hooks
+
+    :param to_run_hooks: array with the csv string passed to the tag
+    :param current_hooks: array with the current available hooks
+    """
+    to_run_hooks = csv_to_set(to_run_hooks)
+    logging.info("    Running only the hooks %s", to_run_hooks)
+    to_run = []
+    for hook in to_run_hooks:
+        if hook in current_hooks:
+            to_run.append(hook)
+    return to_run
+
+
+def rerun(to_rerun_hooks, current_hooks, args):
+    """
+    Handles the Rerun-Hooks tag, reruns the given hooks, if all is given it
+     will rerun all the hooks
+
+    :param to_run_hooks: array with the csv string passed to the tag
+    :param current_hooks: array with the current available hooks
+    """
+    ## When rerunning use only the patchset-created hooks
+    current_hooks = get_hooks(os.path.join(os.environ['GIT_DIR'], 'hooks'),
+                              'patchset-created')
+    to_rerun_hooks = csv_to_set(to_rerun_hooks)
+    logging.info("    Rerunning the hooks %s", to_rerun_hooks)
+    to_rerun = []
+    args.rerun = True
+    for hook in to_rerun_hooks:
+        if not hook.startswith('patchset-created') and hook != 'all':
+            hook = 'patchset-created.' + hook
+        if hook in current_hooks:
+            to_rerun.append(hook)
+        elif hook == 'all':
+            return current_hooks
+    return to_rerun
+
+
+#Tags to look for specified like this:
+#
+# {
+#     tag_name: (
+#         Regexp_to_match,
+#         function_to_run
+#     )
+# }
+## Commit message tags
+COMMIT_TAGS = {
+    'ignore': (
+        'Ignore-Hooks: ',
+        ignore
+    ),
+    'run_only': (
+        'Run-Only-Hooks: ',
+        run_only
+    ),
+}
+## Gerrit comment tags
+COMMENT_TAGS = {
+    'rerun': (
+        'Rerun-Hooks: ',
+        rerun
+    ),
+}
+
+
+def get_tags(tags_def, text):
+    """
+    Retrieves all the tags defined in the tag_def from text
+
+    :param tag_def: Definition of the tags as specified above
+    :param text: text to look for tags (commit message, gerrit message...)
+    """
+    result = {}
+    for line in text.splitlines():
+        for tname, toptions in tags_def.iteritems():
+            if line.startswith(toptions[0]):
+                result[tname] = (line[len(toptions[0]):], toptions[1])
+    return result
+
+
+def get_commit_tags(commit):
+    """
+    Get the tags that were specified in the comit message
+
+    :param commit: Commit to get the message from
+    """
+    repo = Repo(os.environ['GIT_DIR'])
+    message = repo[commit].message
+    logging.debug("Got commit message:\n" + message)
+    return get_tags(COMMIT_TAGS, message)
+
+
+def get_comment_tags(comment):
+    """
+    Get the tags that were specified in gerrit message
+
+    :param comment: Gerrit comment
+    """
+    comment = str(comment)
+    logging.debug("Got gerrit comment:\n" + comment)
+    return get_tags(COMMENT_TAGS, comment)
+
+
+def get_parser():
+    """
+    Build the parser for any hook type
+    """
+    parser = argparse.ArgumentParser(
+        description=('This dispatcher handles the'
+                     ' special tags and hook'
+                     ' execution'),
+    )
+    for arg in ('change', 'project', 'branch'):
+        parser.add_argument('--' + arg,
+                            action='store',
+                            required=True)
+    for arg in ('commit', 'patchset', 'author', 'comment', 'submitter',
+                'abandoner', 'reason', 'rerun'):
+        parser.add_argument('--' + arg,
+                            action='store',
+                            default=False,
+                            required=False)
+    return parser
+
+
+def flatten(array, elems):
+    """
+    Function that appends to the array the options given by elems, to build a
+    new command line array.
+
+    :param array: Command line array as ['ls', '-l', '/tmp']
+    :param elems: Command line options as parsed by arpargse, like
+                  [('author', 'dcaro'), ('email', 'dcaroest@redhat.com')]
+    """
+    option, value = elems
+    if value:
+        array.extend(('--' + option, value))
+    return array
+
+
+def get_hooks(path, hook_type):
+    """"
+    Get all the hooks that match the given type in the given path
+
+    :param path: Path to look the hooks in
+    :param hook_type: Hook type to look for
+    """
+    logging.debug("get_hooks::%s on %s" % (hook_type, path))
+    hooks = []
+    for hook in os.listdir(path):
+        if os.access(os.path.join(path, hook), os.X_OK) \
+                and hook.startswith(hook_type):
+            logging.debug("get_hooks::got hook " + hook)
+            hooks.append(hook)
+    return hooks
+
+
+def get_chains(hooks):
+    chains = OrderedDict()
+    hooks.sort()
+    for hook in hooks:
+        if '.' not in hook:
+            chain = hook
+        elif hook.count('.') < 2:
+            chain = hook.split('.')[1]
+        else:
+            chain = hook.split('.', 2)[1]
+        if chain in chains:
+            chains[chain].append(hook)
+        else:
+            chains[chain] = [hook]
+    return chains
+
+
+def run_hooks(path, hooks, chain='NONE'):
+    """"
+    Run the given hooks form the given path
+
+    :param path: Path where the hooks are located
+    :param hooks: hook names to run
+    """
+    ## add the hooks lib dir to the path
+    os.environ["PATH"] = os.environ["PATH"] + ':' \
+        + os.path.dirname(os.path.realpath(__file__)) + '/lib'
+    hooks.sort()
+    params = sys.argv[1:]
+    for hook in hooks:
+        cmd = [os.path.join(path, hook)]
+        cmd.extend(params)
+        logstr = chain + "::" + hook + "::"
+        logging.info(logstr + "RUNNING::" + ' '.join(cmd))
+        pipe = subprocess.Popen(cmd,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        output, error = pipe.communicate()
+        if pipe.returncode == 0:
+            logging.info(logstr + '\n' + output)
+            error and logging.warn(logstr + '\n' + error)
+        else:
+            logging.warn(logstr + '\n' + output)
+            error and logging.error(logstr + '\n' + error)
+            logging.warn(chain + "::BROKEN WITH " + str(pipe.returncode))
+            return pipe.returncode
+
+
+def run_chains(path, hooks):
+    """"
+    Run the given hooks form the given path
+
+    :param path: Path where the hooks are located
+    :param hooks: hook names to run
+    """
+    ## add the hooks lib dir to the path
+    logging.info("::RUNNING HOOKS::%s", hooks)
+    chains = get_chains(hooks)
+    for c_name, c_hooks in chains.iteritems():
+        logging.info(c_name + "::STARTING")
+        ret_code = run_hooks(path, c_hooks, c_name)
+        if ret_code == 1:
+            logging.error("ABORTING::got return code 1.")
+            return ret_code
+        elif ret_code == 0:
+            logging.info(c_name + "::FINISHED OK")
+
+
+def get_hook_type(opts):
+    """
+    Guess the right hook type, gerrit sometimes resolves the real path
+
+    :param opts: options given to the script, so it can guess the hook type
+    """
+    if opts.patchset:
+        return 'patchset-created'
+    elif opts.author:
+        return 'comment-added'
+    elif opts.submitter:
+        return 'change-merged'
+    elif opts.abandoner:
+        return 'change-abandoned'
+    else:
+        return os.path.basename(__file__)
+
+
+def main():
+    logpath = os.path.join(os.path.dirname(__file__), '..', 'logs')
+    logging.basicConfig(filename=os.path.join(logpath, 'gerrit.hooks.log'),
+                        level=logging.INFO,
+                        format='%(asctime)s::'
+                        + str(os.getpid())
+                        + '::%(levelname)s::%(message)s')
+    parser = get_parser()
+    known_args, rest = parser.parse_known_args()
+    res = reduce(flatten, vars(known_args).items(), [])
+    ## This second time is to force the existence of the required args
+    parser.parse_args(res)
+    if 'GIT_DIR' not in os.environ:
+        logging.error("Set the GIT_DIR to the repository path")
+        raise Exception("Set the GIT_DIR to the repository path")
+    logging.debug("STARTING::PARAMS %s" % sys.argv)
+    hook_type = get_hook_type(known_args)
+    logging.info("STARTING::" + hook_type)
+    hooks = get_hooks(os.path.join(os.environ['GIT_DIR'], 'hooks'),
+                      hook_type)
+    logging.info("::AVAILABLE HOOKS::%s", hooks)
+    tags = {}
+    if known_args.commit:
+        ## get tags from the commit message
+        tags.update(get_commit_tags(known_args.commit))
+    if known_args.comment:
+        ## and from the gerrit comment
+        tags.update(get_comment_tags(known_args.comment))
+    for tag_val, fun in tags.itervalues():
+        ## Execute the functions with the tag value, the current available
+        ##  hooks, and the args so they can be modified
+        hooks = fun(tag_val, hooks, known_args)
+    ## keep them sorted (will be sorted again later though)
+    hooks.sort()
+    run_chains(os.path.join(os.environ['GIT_DIR'], 'hooks'), hooks)
+    logging.info("FINISHED")
+
+
+if __name__ == '__main__':
+    main()
