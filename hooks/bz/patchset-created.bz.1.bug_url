@@ -1,0 +1,57 @@
+#!/bin/bash
+###############################################################################
+# Checks that the patch has Bug-Url in the git commit message, breaks the
+# chain if not
+#
+# Config Options:
+#   BRANCHES - List of relevant branches, only those branches listed here will
+#              be tested as a bash array: BRANCHES=('rhev-3.2' 'rhev-3.1')
+#   BZ_USER - Bz username to use when logging in
+#   BZ_PASS - Bz password to use when logging in
+###############################################################################
+
+source bz.sh
+source tools.sh
+source gerrit.sh
+source conf.sh
+
+###############################################################################
+## MAIN
+## Parse the parameters
+gerrit.parse_params "$@"
+
+## Parse the configuration
+conf.load
+
+message=""
+## Check if we have to manage that branch
+if ! vindex=$(tools.is_in "$branch" "${BRANCHES[@]}"); then
+    echo "Ignoring branch $branch"
+    exit 2
+fi
+bug_ids=($(bz.get_bug_id $commit))
+## break the chain if no bug-url found
+if [[ -z "$bug_ids" ]]; then
+    exit 2
+fi
+bz_password="${BZ_PASS?No BZ_PASS in the config}"
+bz_user="${BZ_USER?No BZ_USER in the config}"
+bz.login "$bz_user" "$bz_password"
+failed="false"
+echo "Got bug ids ${bug_ids[@]}"
+for bug_id in ${bug_ids[@]}; do
+    if bz.is_private "$bug_id"; then
+        echo "$bug_id::ERROR bug is private."
+        message+="* Bug-Url::$bug_id::ERROR, private bug"
+        failed="true"
+        continue
+    fi
+done
+if [[ "$failed" == "true" ]]; then
+    bz.clean
+    gerrit.review "-1" "$message"
+    echo "$message"
+    exit 2
+else
+    conf.t_put message "$message"
+fi
