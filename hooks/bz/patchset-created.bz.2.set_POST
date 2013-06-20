@@ -1,0 +1,44 @@
+#!/bin/bash
+###############################################################################
+# Moves the bugs in the commit message to POST state
+###############################################################################
+source bz.sh
+source gerrit.sh
+source conf.sh
+
+set_POST()
+{
+    local bug_id="${1?}"
+    local commit="${2?}"
+    ## Get the bug url and it's flags
+    bz.login -b "$bug_id" "$bz_user" "$bz_password"
+    ## Update the tracker on the bz bug
+    local message="$(conf.t_get message)"
+    if ! res=$(bz.update_status "$bug_id" "POST" "$commit"); then
+        message+="\n* Set POST #$bug_id: FAILED, $res"
+        echo "Failed to update the status of bug #$bug_id for gerrit id #${change_url//*\/} to POST"
+        echo "  $res"
+    else
+        message+="\n* Set POST #$bug_id: OK${res:+, $res}"
+        echo "Status updated on bug #$bug_id for gerrit id #${change_url//*\/} to POST"
+    fi
+    conf.t_put message "$message"
+    return 0
+}
+
+###############################################################################
+## MAIN
+## Parse the parameters
+gerrit.parse_params "$@"
+
+## Parse the configuration
+conf.load
+
+bz_user="${BZ_USER?No BZ_USER in the config file}"
+bz_password="${BZ_PASS?No BZ_PASS in the config file}"
+
+bug_ids=($(bz.get_bug_id $commit))
+for bug_id in "${bug_ids[@]}"; do
+    set_POST "$bug_id" "$commit"
+done
+exit 0
