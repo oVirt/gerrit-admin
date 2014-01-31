@@ -1,0 +1,107 @@
+#!/usr/bin/env python
+
+import argparse
+import logging
+import sys
+import os
+from config import load_config
+from gerrit import Gerrit
+
+
+class NonComparableVersions(Exception): pass
+
+def is_newer(branch1, branch2):
+    try:
+        b1_ver_num = branch1.rsplit('-', 1)[1]
+        b2_ver_num = branch2.rsplit('-', 1)[1]
+        b1_tuple = tuple(map(int, (b1_ver_num.split("."))))
+        b2_tuple = tuple(map(int, (b2_ver_num.split("."))))
+    except (IndexError, ValueError):
+        raise NonComparableVersions(
+            "Unable to parse version strings (%s, %s)"
+            % (branch1, branch2))
+    return b1_tuple > b2_tuple
+
+
+def get_unmerged_newer_branches(gerrit, change_id, cur_branch):
+    branches = []
+    patches = gerrit.query(change_id, out_format='json')
+    for patch in patches:
+        if 'branch' not in patch or patch['branch'] == cur_branch:
+            continue
+        logging.debug("Checking patch %s" % str(patch))
+        try:
+            if is_newer(patch['branch'], cur_branch) and patch['open']:
+                logging.error('patch with id {id} still open for branch '
+                              '{branch}'.format(**patch))
+            branches.append(patch['branch'])
+        except NonComparableVersions:
+            logging.info("Unable to compare versions '%s' and '%s'"
+                         % (patch['branch'], cur_branch))
+    return branches
+
+
+def get_parser():
+    """
+    Build the parser for patchset-created hook type
+    """
+    parser = argparse.ArgumentParser(
+        description=('This dispatcher handles the'
+                     ' special tags and hook'
+                     ' execution'),
+    )
+    for arg in ('change', 'project', 'branch', 'commit'):
+        parser.add_argument('--' + arg,
+                            action='store',
+                            required=True)
+    for arg in ('author', 'is-draft', 'change-url', 'comment', 'uploader',
+                'patchset', 'topic'):
+        parser.add_argument('--' + arg,
+                            action='store',
+                            required=False)
+    parser.add_argument('-v', '--verbose', action='store_true', default=False)
+    return parser
+
+
+def give_warning(gerrit, commit, project, branches):
+    msg = ("WARNING: This patch was not merged yet on all the newer "
+           "branches\n  Missing on: %s" % ', '.join(branches))
+    gerrit.review(commit=commit, project=project, message=msg)
+
+
+def main():
+    parser = get_parser()
+    args, unknown = parser.parse_known_args()
+    if args.verbose:
+        loglevel = logging.DEBUG
+    else:
+        loglevel = logging.INFO
+    logging.basicConfig(stream=sys.stdout,
+                        level=loglevel,
+                        format='%(asctime)s::'
+                        + str(os.getpid())
+                        + '::%(levelname)s::%(message)s')
+    config = load_config()
+    logging.debug("STARTING::PARAMS %s" % sys.argv)
+    stable_branches = config.get('STABLE_BRANCHES', None)
+    if stable_branches is None:
+        logging.info('No stable branches configured, set STABLE_BRANCHES in '
+                     'the config to the correct value')
+        return
+    stable_branches = stable_branches.split(' ')
+    if args.branch not in stable_branches:
+        logging.info('Not in one of the stable branches %s, but in %s'
+                     % (stable_branches, args.branch))
+        return
+    gerrit = Gerrit(config['GERRIT_SRV'])
+    unmerged_branches = get_unmerged_newer_branches(
+        gerrit,
+        args.change,
+        args.branch)
+    if unmerged_branches:
+        give_warning(gerrit, args.commit, args.project, unmerged_branches)
+    logging.info("FINISHED")
+
+
+if __name__ == '__main__':
+    main()
