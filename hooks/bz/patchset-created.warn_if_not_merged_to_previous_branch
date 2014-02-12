@@ -34,7 +34,7 @@ def get_unmerged_newer_branches(gerrit, change_id, cur_branch):
             if is_newer(patch['branch'], cur_branch) and patch['open']:
                 logging.error('patch with id {id} still open for branch '
                               '{branch}'.format(**patch))
-            branches.append(patch['branch'])
+                branches.append(patch['branch'])
         except NonComparableVersions:
             logging.info("Unable to compare versions '%s' and '%s'"
                          % (patch['branch'], cur_branch))
@@ -67,6 +67,7 @@ def give_warning(gerrit, commit, project, branches):
     msg = ("WARNING: This patch was not merged yet on all the newer "
            "branches\n  Missing on: %s" % ', '.join(branches))
     gerrit.review(commit=commit, project=project, message=msg)
+    logging.error(msg)
 
 
 def main():
