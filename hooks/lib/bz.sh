@@ -439,5 +439,5 @@ bz.is_private()
 {
     bug_id="${1?}"
     bz.get_bug "$bug_id" \
-    | grep -q '<group id="218">private</group>'
+    | grep -q '<bug error="NotPermitted">'
 }
