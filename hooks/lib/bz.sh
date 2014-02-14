@@ -37,9 +37,14 @@ bz.get_bug()
         local cookie_jar="$(conf.t_get bz_cookie_jar)"
         [[ -f ${cookie_jar?You have to login to bugzilla first, see bz.login} ]]
         bug_cache="/tmp/bz_cache.$PPID.${bug_id}.${btype}"
-        wget -qO - \
-            --load-cookies "$cookie_jar" \
-            --save-cookies "$cookie_jar" \
+#        wget -qO - \
+#            --load-cookies "$cookie_jar" \
+#            --save-cookies "$cookie_jar" \
+#            "https://bugzilla.redhat.com/show_bug.cgi?id=${bug_id}${options}" \
+        curl \
+            --silent \
+            --cookie-jar "$cookie_jar" \
+            --cookie "$cookie_jar" \
             "https://bugzilla.redhat.com/show_bug.cgi?id=${bug_id}${options}" \
         | tee "$bug_cache"
         conf.t_put "bz_${bug_id}_${btype}" "$bug_cache"
@@ -69,11 +74,18 @@ bz.update_bug()
     do
         post_data="${post_data:+$post_data&}$param"
     done
-    wget -qO - \
-        --load-cookies "$cookie_jar" \
-        --save-cookies "$cookie_jar" \
+#    wget -qO - \
+#        --load-cookies "$cookie_jar" \
+#        --save-cookies "$cookie_jar" \
+#        --header "Referer: https://bugzilla.redhat.com/show_bug.cgi?id=$bug_id" \
+#        --post-data "$post_data" \
+#        "https://bugzilla.redhat.com/process_bug.cgi?id=$bug_id" \
+    curl \
+        --silent \
+        --cookie-jar "$cookie_jar" \
+        --cookie "$cookie_jar" \
         --header "Referer: https://bugzilla.redhat.com/show_bug.cgi?id=$bug_id" \
-        --post-data "$post_data" \
+        --data "$post_data" \
         "https://bugzilla.redhat.com/process_bug.cgi?id=$bug_id" \
     | tee /tmp/update_bug_log.${bug_id} 2>/dev/null\
     | grep -q "Changes submitted for"
@@ -187,9 +199,16 @@ bz.login()
         [[ "$cookie_jar" == "" ]] \
         && cookie_jar="/tmp/bz_cache.$PPID.cookies"
         conf.t_put "bz_cookie_jar" "$cookie_jar"
-        wget -qO ${plain_bug:-/dev/null} --save-cookies "$cookie_jar" \
-            --post-data "Bugzilla_login=${bz_user//@/%40}&Bugzilla_password=${bz_password}&GoAheadAndLogIn=Log+in" \
-            "$server_url"
+#        wget -qO ${plain_bug:-/dev/null} --save-cookies "$cookie_jar" \
+#            --post-data "Bugzilla_login=${bz_user//@/%40}&Bugzilla_password=${bz_password}&GoAheadAndLogIn=Log+in" \
+#            "$server_url"
+        curl \
+            --silent \
+            --cookie-jar "$cookie_jar" \
+            --cookie "$cookie_jar" \
+            --data "Bugzilla_login=${bz_user//@/%40}&Bugzilla_password=${bz_password}&GoAheadAndLogIn=Log+in" \
+            "$server_url" \
+        > ${plain_bug:-/dev/null}
     fi
 }
 
