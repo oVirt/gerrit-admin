@@ -60,11 +60,13 @@ gerrit.parse_params()
 gerrit.review()
 {
     local result=${1?}
-    local message="$( echo "${2?}" | fold -w 60 -s )"
+#    local message="$( echo "${2?}" | fold -w 80 -s )"
+    local message="${2?}"
     local project=${3:-$project}
     local commit=${4:-$commit}
     local footer="
  help:$HELP_URL"
+    echo "Message:\n$message"
     ssh "${GERRIT_SRV?}" -p 29418 gerrit review \
         --verified="$result" \
         --message="\"$message${HELP_URL:+$footer}\"" \

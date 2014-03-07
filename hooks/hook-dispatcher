@@ -23,6 +23,15 @@ import subprocess
 import argparse
 import logging
 from dulwich.repo import Repo
+## Load also the hook libs
+os.environ["PATH"] = os.environ["PATH"] + ':' \
+    + os.path.dirname(os.path.realpath(__file__)) + '/lib'
+os.environ["PYTHONPATH"] = os.environ.get("PYTHONPATH", "") \
+    + ':' + os.path.dirname(os.path.realpath(__file__)) + '/lib'
+from lib import (
+    gerrit,
+    config,
+)
 
 
 def csv_to_set(csv_string):
@@ -225,6 +234,83 @@ def get_chains(hooks):
     return chains
 
 
+def parse_stdout(stdout):
+    """
+    The expected output format is:
+
+    ############
+    code_review_value
+    verified_value
+    multiline_msg
+    ############
+
+    Where code_review_value and verified_value can be an empty line if it's
+    an abstention (no modifying the value any of the previous or next hooks
+    in the chain set)
+    If any of the lines is missing then it will assumed an abstention.
+
+        2 lines -> No message
+        1 line  -> No message and no verified value
+        0 lines -> Not changing anything
+
+    And if any of the two first lines fails when converting to integer, it
+    will assume that's the start of the message and count the non-specified
+    votes as abstentions
+
+
+    Examples:
+    ################
+    message starts here
+    -1
+    message continues
+    ################
+
+    ^^^ this will be parsed as only message and two abstentions
+
+    ################
+    -1
+    message starts here
+    0
+    message continues here
+    ################
+
+    ^^^ this will count as CR:-1, and the rest message
+
+    ################
+    0
+    message
+    ################
+
+    ^^^ This will count as CR:0 (will level any positive review) and the rest
+    message
+    """
+    result = {
+        'code_review': None,
+        'verified': None,
+        'msg': None,
+    }
+    stdout = stdout.splitlines()
+    for elem_name in ('code_review', 'verified'):
+        if not stdout:
+            return result
+        try:
+            elem = stdout.pop(0)
+            ## non-voting
+            if not elem:
+                elem = None
+            ## voting
+            else:
+                elem = int(elem)
+                result[elem_name] = elem
+        ## So we don't have a number, the message should start here
+        except ValueError:
+            ## put the line back
+            stdout.insert(0, elem)
+            break
+    result['msg'] = '\n'.join(stdout) or None
+    return result
+
+
 def run_hooks(path, hooks, chain='NONE'):
     """"
     Run the given hooks form the given path
@@ -232,13 +318,9 @@ def run_hooks(path, hooks, chain='NONE'):
     :param path: Path where the hooks are located
     :param hooks: hook names to run
     """
-    ## add the hooks lib dir to the path
-    os.environ["PATH"] = os.environ["PATH"] + ':' \
-        + os.path.dirname(os.path.realpath(__file__)) + '/lib'
-    os.environ["PYTHONPATH"] = os.environ.get("PYTHONPATH", "") \
-       + ':' + os.path.dirname(os.path.realpath(__file__)) + '/lib'
     hooks.sort()
     params = sys.argv[1:]
+    global_result = None
     for hook in hooks:
         cmd = [os.path.join(path, hook)]
         cmd.extend(params)
@@ -248,14 +330,27 @@ def run_hooks(path, hooks, chain='NONE'):
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
         output, error = pipe.communicate()
+        logging.debug("Raw output:\n################\n%s\n###################\n" % output)
+        result = parse_stdout(output)
+        if global_result is None:
+            global_result = result
+        else:
+            for elem in ('code_review', 'verified'):
+                if result[elem] is not None \
+                        and result[elem] < global_result[elem]:
+                    global_result[elem] = result[elem]
+            if result['msg']:
+                global_result['msg'] = str(global_result['msg']) \
+                    + '\n' + result['msg']
         if pipe.returncode == 0:
-            logging.info(logstr + '\n' + output)
+            logging.info(logstr + '\n' + str(result))
             error and logging.warn(logstr + '\n' + error)
         else:
-            logging.warn(logstr + '\n' + output)
+            logging.warn(logstr + '\n' + str(result))
             error and logging.error(logstr + '\n' + error)
             logging.warn(chain + "::BROKEN WITH " + str(pipe.returncode))
-            return pipe.returncode
+            return global_result
+    return global_result
 
 
 def run_chains(path, hooks):
@@ -266,16 +361,17 @@ def run_chains(path, hooks):
     :param hooks: hook names to run
     """
     ## add the hooks lib dir to the path
+    results = {}
     logging.info("::RUNNING HOOKS::%s", hooks)
     chains = get_chains(hooks)
     for c_name, c_hooks in chains.iteritems():
         logging.info(c_name + "::STARTING")
-        ret_code = run_hooks(path, c_hooks, c_name)
-        if ret_code == 1:
-            logging.error("ABORTING::got return code 1.")
-            return ret_code
-        elif ret_code == 0:
-            logging.info(c_name + "::FINISHED OK")
+        results[c_name] = run_hooks(path, c_hooks, c_name)
+        if results[c_name]['msg'] is None:
+            results[c_name]['msg'] = '* %s: OK' % c_name
+        logging.info(c_name + "::FINISHED with result:\n"
+                     + str(results[c_name]))
+    return results
 
 
 def get_hook_type(opts):
@@ -294,6 +390,48 @@ def get_hook_type(opts):
         return 'change-abandoned'
     else:
         return os.path.basename(__file__)
+
+
+def send_summary(change_id, project, results):
+    """
+    Parse all the results and generate the summary review
+
+    :param change_id: string to identify the change with, usually the commit
+                      hash or the change-id,patchset pair
+    :param results: Dictionary with the compiled results for all the chains
+
+    It will use the lowest values for the votes, skipping the ones that are
+    `None`, and merge all the messages into one.
+
+    For example, if it has two chains, one with CR:0 and one with CR:1, the
+    result will be CR:0.
+    """
+    msg = []
+    code_review = None
+    verified = None
+    ## Generate final review
+    for result in results.itervalues():
+        if result['msg']:
+            msg.append(result['msg'])
+        if result['code_review'] is not None \
+                and (code_review is None
+                     or result['code_review'] < code_review):
+            code_review = result['code_review']
+        if result['verified'] is not None \
+                and (verified is None
+                     or result['verified'] < verified):
+            verified = result['verified']
+    ### Reset if neutral review
+    if verified is None:
+        verified = 0
+    if code_review is None:
+        code_review = 0
+    msg = '\n'.join(msg)
+    conf = config.load_config()
+    g_server = gerrit.Gerrit(conf['GERRIT_SRV'])
+    g_server.review(change_id, project, msg, code_review, verified)
+    logging.info("  FINAL REVIEW\nCR: %s\nV: %s\nMSG:\n%s"
+                 % (str(code_review), str(verified), str(msg)))
 
 
 def main():
@@ -318,9 +456,13 @@ def main():
                       hook_type)
     logging.info("::AVAILABLE HOOKS::%s", hooks)
     tags = {}
+    change_ident = None
     if known_args.commit:
         ## get tags from the commit message
         tags.update(get_commit_tags(known_args.commit))
+        change_ident = known_args.commit
+    elif known_args.patchset and known_args.change:
+        change_ident = "%s,%s" % (known_args.patchset, known_args.change)
     if known_args.comment:
         ## and from the gerrit comment
         tags.update(get_comment_tags(known_args.comment))
@@ -328,9 +470,14 @@ def main():
         ## Execute the functions with the tag value, the current available
         ##  hooks, and the args so they can be modified
         hooks = fun(tag_val, hooks, known_args)
-    ## keep them sorted (will be sorted again later though)
-    hooks.sort()
-    run_chains(os.path.join(os.environ['GIT_DIR'], 'hooks'), hooks)
+    ## if we found any hooks, run them
+    if hooks:
+        ## keep them sorted (will be sorted again later though)
+        hooks.sort()
+        results = run_chains(os.path.join(os.environ['GIT_DIR'], 'hooks'),
+                             hooks)
+        if change_ident:
+            send_summary(change_ident, known_args.project, results)
     logging.info("FINISHED")
 
 

@@ -134,7 +134,7 @@ conf.put()
     if [[ -f "$conf_file" ]] && grep -Eq "^\s*$name=" "$conf_file"; then
         ## delete the old entry
         local entry="$(grep "$name=" "$conf_file")"
-        if [[ "${entry: -1}" == '"' ]]; then
+        if [[ "$entry" =~ $name=\".*\"$ ]]; then
             sed -i -e "/$name=/d" "$conf_file"
         else
             ## It's multiline

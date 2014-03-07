@@ -9,45 +9,29 @@ source tools.sh
 # Usage:
 #   bz.get_bug [-p] bug_id
 #
-#  Get's the bug_id bug xml information from cache, or if not cached, from the
+#  Get's the bug_id bug json information from cache, or if not cached, from the
 #  server.
-#
-#  -p  Get it in plain text
 #
 bz.get_bug()
 {
     local OPTIND
-    local options="&ctype=xml"
-    local btype="xml"
     local clean_after='false'
-    while getopts "p" option; do
-        case $option in
-            p)
-                options=""
-                btype='plain'
-                ;;
-        esac
-    done
-    shift $((OPTIND-1))
     local bug_id="${1?No bug id issued}"
-    local bug_cache="$(conf.t_get bz_${bug_id}_${btype})"
+    local bug_cache="$(conf.t_get bz_${bug_id}_json)"
     if [[ "$bug_cache" != "" ]] && [[ -f "$bug_cache" ]]; then
         cat "$bug_cache"
     else
-        local cookie_jar="$(conf.t_get bz_cookie_jar)"
-        [[ -f ${cookie_jar?You have to login to bugzilla first, see bz.login} ]]
-        bug_cache="/tmp/bz_cache.$PPID.${bug_id}.${btype}"
-#        wget -qO - \
-#            --load-cookies "$cookie_jar" \
-#            --save-cookies "$cookie_jar" \
-#            "https://bugzilla.redhat.com/show_bug.cgi?id=${bug_id}${options}" \
-        curl \
-            --silent \
-            --cookie-jar "$cookie_jar" \
-            --cookie "$cookie_jar" \
-            "https://bugzilla.redhat.com/show_bug.cgi?id=${bug_id}${options}" \
+        if [[ "$bug_cache" == "" ]]; then
+            bug_cache="/tmp/bz_cache.$PPID.${bug_id}.json"
+        fi
+        bz.py \
+            ${BZ_USER:+--bz-user="$BZ_USER"} \
+            ${BZ_PASS:+--bz-pass="$BZ_PASS"} \
+            Bug.get "ids=[$bug_id]" \
+            "extra_fields=[\"flags\", \"external_bugs\"]" \
         | tee "$bug_cache"
-        conf.t_put "bz_${bug_id}_${btype}" "$bug_cache"
+        [[ ${PIPESTATUS[0]} == 0 ]] \
+        && conf.t_put "bz_${bug_id}_json" "$bug_cache"
     fi
 }
 
@@ -64,42 +48,27 @@ bz.get_bug()
 bz.update_bug()
 {
     local bug_id="${1?No bug id passed}"
-    local param post_data rc bug_cache
-    local cookie_jar="$(conf.t_get bz_cookie_jar)"
-    [[ -f ${cookie_jar?You have to login to bugzilla first, see bz.login} ]]
     shift
-    ## We also need the token and confirm_public_bug to avoid confirmation
-    ## page
-    for param in "token=$(bz.get_token $bug_id)" "confirm_public_bug=1" "$@"
-    do
-        post_data="${post_data:+$post_data&}$param"
-    done
-#    wget -qO - \
-#        --load-cookies "$cookie_jar" \
-#        --save-cookies "$cookie_jar" \
-#        --header "Referer: https://bugzilla.redhat.com/show_bug.cgi?id=$bug_id" \
-#        --post-data "$post_data" \
-#        "https://bugzilla.redhat.com/process_bug.cgi?id=$bug_id" \
-    curl \
-        --silent \
-        --cookie-jar "$cookie_jar" \
-        --cookie "$cookie_jar" \
-        --header "Referer: https://bugzilla.redhat.com/show_bug.cgi?id=$bug_id" \
-        --data "$post_data" \
-        "https://bugzilla.redhat.com/process_bug.cgi?id=$bug_id" \
-    | tee /tmp/update_bug_log.${bug_id} 2>/dev/null\
-    | grep -q "Changes submitted for"
-    rc=$?
-    if [[ $rc -eq 0 ]]; then
-        rm -f "/tmp/update_bug_log.${bug_id}"
+    local param data rc bug_cache
+    local error=0
+    res="$(bz.py \
+            --bz-user="$BZ_USER" \
+            --bz-pass="$BZ_PASS" \
+            Bug.update \
+            "ids=[$bug_id]" \
+            "$@" \
+        | tee /tmp/update_bug_log.${bug_id} \
+    )"
+    if [[ $res =~ ^ERROR ]]; then
+        tools.log "Error while updating bug #${bug_id}"
+        tools.log "$res"
+        error=1
     else
-        echo "Error while updating bug #${bug_id} with post_data, response data"\
-             "at /tmp/update_bug_log.${bug_id}"
-        echo "Sent data: $post_data"
+        rm -f "/tmp/update_bug_log.${bug_id}"
     fi
     ## clean the old bug data from all caches, if any
     rm -f /tmp/bz_cache.*.${bug_id}.*
-    return $rc
+    return $error
 }
 
 
@@ -179,37 +148,36 @@ bz.get_bug_id()
 bz.login()
 {
     local server_url="$(conf.get 'bugzilla_server' 'https://bugzilla.redhat.com')"
-    local OPTIND bug_id plain_bug
+    local OPTIND bug_id json_bug
     while getopts "s:b:" option; do
         case $option in
             s) server_url="$OPTARG";;
-            i)
+            b)
                 bug_id="$OPTARG"
-                plain_bug="/tmp/bz_cache.$PPID.${bug_id}.plain"
-                conf.t_put "bz_${bug_id}_plain" "$plain_bug"
+                json_bug="/tmp/bz_cache.$PPID.${bug_id}.json"
+                conf.t_put "bz_${bug_id}_json" "$json_bug"
+                tools.log "Getting bug $bug_id into $json_bug"
                 ;;
         esac
     done
-    server_url="${server_url}${bug_id:+/show_bug.cgi?id=${bug_id}}"
     shift $((OPTIND - 1))
-    local cookie_jar="$(conf.t_get bz_cookie_jar)"
-    if ! [[ -f "$cookie_jar" ]] ; then
-        local bz_user="${1?No user passed}"
-        local bz_password="${2?No password passed}"
-        [[ "$cookie_jar" == "" ]] \
-        && cookie_jar="/tmp/bz_cache.$PPID.cookies"
-        conf.t_put "bz_cookie_jar" "$cookie_jar"
-#        wget -qO ${plain_bug:-/dev/null} --save-cookies "$cookie_jar" \
-#            --post-data "Bugzilla_login=${bz_user//@/%40}&Bugzilla_password=${bz_password}&GoAheadAndLogIn=Log+in" \
-#            "$server_url"
-        curl \
-            --silent \
-            --cookie-jar "$cookie_jar" \
-            --cookie "$cookie_jar" \
-            --data "Bugzilla_login=${bz_user//@/%40}&Bugzilla_password=${bz_password}&GoAheadAndLogIn=Log+in" \
-            "$server_url" \
-        > ${plain_bug:-/dev/null}
-    fi
+    local bz_user="${1?No user passed}"
+    local bz_password="${2?No password passed}"
+    [[ "$bz_user" == "" ]] && { echo "No use supplied"; return 1; }
+    [[ "$bz_password" == "" ]] && { echo "No password supplied"; return 1; }
+    ## Login for us is just trying to do a request and not getting error
+    res="$(bz.py \
+        --bz-user "$bz_user" \
+        --bz-pass "$bz_password" \
+        Bug.get "ids=[$bug_id]" \
+    )"
+    [[ "$res" =~ ^LOGIN\ ERROR.* ]] \
+    && {
+        tools.log "::bz.login::Failed to log in\n $res" >&2
+        return 1
+    }
+    [[ -n "$json_bug" ]] && echo "$res" >"$json_bug"
+    return 0
 }
 
 
@@ -222,16 +190,19 @@ bz.login()
 bz.get_bug_flags()
 {
     local bugid=${1?}
+    local wanted_status="${2:-+}"
     local line fname
-    local status_regexp='status=\"\+\"'
-    local flag_regexp='.*\<flag\ name=\"([^\"].*)\"'
+    local status_regexp='"status": \"(.)\"'
+    local flag_regexp='"name": "([^\"].*)"'
     while read line; do
         if [[ "$line" =~ $flag_regexp ]]; then
-            fname="${BASH_REMATCH[1]}"
+            if [[ "$status" == "$wanted_status" ]]; then
+                echo "${BASH_REMATCH[1]}"
+            fi
         elif [[ "$line" =~ $status_regexp ]]; then
-            echo "$fname"
+            status="${BASH_REMATCH[1]}"
         fi
-    done < <( bz.get_bug "$bugid" | grep -aPzo "(?s)^( *)[^#\n]*<flag[^>]*>" )
+    done < <( bz.get_bug "$bugid" | grep -aPz "\"flags\": \[.*(\n[^]]*)*\]" )
 }
 
 
@@ -245,7 +216,7 @@ bz.get_bug_status()
 {
     local bugid=${1?}
     bz.get_bug "$bugid" \
-    | grep -aPzo "(?<=<bug_status>)[^<]*"
+    | grep -Po '"status": "\K[^"]{2,}+'
 }
 
 
@@ -294,20 +265,6 @@ bz.check_flags()
 
 ######
 # Usage:
-#   bz.get_token bug_id
-#
-# Gets the session token to be able to do submits (update a bug)
-#
-bz.get_token()
-{
-    bug_id=${1?No bug id passed}
-    bz.get_bug -p "$bug_id" \
-    | grep -Po "(?<=<input type=\"hidden\" name=\"token\" value=\")[^\"]*"
-}
-
-
-######
-# Usage:
 #   bz.add_tracker bug_id tracker_id external_id
 #
 #     tracker_id
@@ -320,37 +277,61 @@ bz.get_token()
 # Add a new external bug to the external bugs list
 bz.add_tracker()
 {
-    bug_id="${1?}"
-    tracker_id="${2?}"
-    external_id="${3?}"
-    bz.update_bug "$bug_id" \
-        "external_bug_id=${external_id}" \
-        "external_id=${tracker_id}"
+    local bug_id="${1?}"
+    local tracker_id="${2?}"
+    local external_id="${3?}"
+    local description="${4}"
+    local status="${5}"
+    local branch="${6}"
+    local externals="{"
+    externals+="\"ext_bz_bug_id\": \"$external_id\""
+    externals+=", \"ext_type_id\": \"$tracker_id\""
+    externals+="${description:+, \"ext_description\": \"$description\"}"
+    externals+="${status:+, \"ext_status\": \"$status\"}"
+    externals+="${branch:+, \"ext_priority\": \"$branch\"}"
+    externals+="}"
+    bz.py \
+        ${BZ_USER:+--bz-user $BZ_USER} \
+        ${BZ_PASS:+--bz-pass $BZ_PASS} \
+        ExternalBugs.add_external_bug \
+        "bug_ids=[$bug_id]" \
+        "externa_bugs=[$externals]" \
+        >/dev/null \
+    || bz.py \
+        ${BZ_USER:+--bz-user $BZ_USER} \
+        ${BZ_PASS:+--bz-pass $BZ_PASS} \
+        ExternalBugs.update_external_bug \
+        "$externals"
 }
 
 ## Update fixed in version field
 bz.update_fixed_in_version()
 {
-    bug_id="${1?}"
-    fixed_in_version="${2?}"
-    bz.update_bug "$bug_id" "cf_fixed_in=${fixed_in_version}"
+    local bug_id="${1?}"
+    local fixed_in_version="${2?}"
+    bz.update_bug \
+        "$bug_id" \
+        "cf_fixed_in=${fixed_in_version}"
 }
 
 
 ## Update fixed in version field
 bz.update_status_and_version()
 {
-    bug_id="${1?}"
-    bug_status="${2?}"
-    fixed_in_version="${3?}"
-    bz.update_bug "$bug_id" \
-        "bug_status=${bug_status}" \
-        "cf_fixed_in=${fixed_in_version}"
+    local bug_id="${1?}"
+    local bug_status="${2?}"
+    local fixed_in_version="${3?}"
+    local resolution="${4}"
+    bz.update_bug \
+        "$bug_id" \
+        "status=${bug_status}" \
+        "cf_fixed_in=${fixed_in_version}" \
+        ${resolution:+"resolution=$resolution"}
 }
 
 ######
 # Usage:
-#  bz.update_status bug_id new_status
+#  bz.update_status bug_id new_status [commit_id] [resolution]
 #
 #    bug_id
 #      Id of the bug to update
@@ -359,43 +340,57 @@ bz.update_status_and_version()
 #      New status to set the bug to, only the allowed transitions will end in
 #      a positive result (return code 0)
 #
+#    commit_id
+#      Id of the commit that should change the status of this bug
+#
+#    resolution
+#      In case that the status is CLOSED, the resolution is needed
+#
 #
 #  Legal status transitions:
-#    ASSIGNED -> POST
+#    NEW|ASSIGNED|MODIFIED -> POST
 #    POST -> MODIFIED
 #
 #  If it's a revert any source status is allowed
 #
 bz.update_status()
 {
-    bug_id="${1?}"
-    new_status="${2?}"
-    commit_id="${3?}"
-    current_status="$(bz.get_bug_status "$bug_id")"
+    local bug_id="${1?}"
+    local new_status="${2?}"
+    local commit_id="${3}"
+    local resolution="${4}"
+    local current_status="$(bz.get_bug_status "$bug_id")"
+    if [[ $new_status == "CLOSED" ]] && [[ -z $resolution ]]; then
+        resolution="$3"
+        commit_id=""
+    fi
     if [[ "$current_status" == "$new_status" ]]; then
         echo "already on $new_status"
         return 0
     fi
-    if ! bz.is_revert "$commit_id"; then
+    if [[ -n "$commit_id" ]] && ! bz.is_revert "$commit_id"; then
         case $current_status in
-            ASSIGNED)
+            ASSIGNED|NEW|MODIFIED)
                 if [[ "$new_status" != "POST" ]]; then
-                    echo "ilegal change from $current_status"
+                    echo "illegal change from $current_status"
                     return 1
                 fi
                 ;;
             POST)
                 if [[ "$new_status" != "MODIFIED" ]]; then
-                    echo "ilegal change from $current_status"
+                    echo "illegal change from $current_status"
                     return 1
                 fi
                 ;;
             *)
-                echo "ilegal change from $current_status"
+                echo "illegal change from $current_status"
                 return 1
         esac
     fi
-    bz.update_bug "$bug_id" "bug_status=${new_status}"
+    bz.update_bug \
+        "$bug_id" \
+        "status=${new_status}" \
+        ${resolution:+"resolution=$resolution"}
 }
 
 
@@ -415,10 +410,23 @@ bz.update_status()
 #
 bz.get_external_bugs()
 {
-    bug_id="${1?}"
-    external_name="${2:-[^.*]}"
-    bz.get_bug "$bug_id" \
-    | grep -Po "(?<=<external_bugs name=\"$external_name\">)\d*"
+    local bugid=${1?}
+    local external_name="${2}"
+    local line fname
+    local desc_regexp='"description": \"([^\"]*)\",'
+    local bugid_regexp='"ext_bz_bug_id": "([^\"]*)"'
+    while read line; do
+        if [[ "$line" =~ $desc_regexp ]]; then
+            desc="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ $bugid_regexp ]]; then
+            exbugid="${BASH_REMATCH[1]}"
+            if [[ -z $external_name ]] \
+            || [[ "$external_name" == "$desc" ]]; then
+                echo "$exbugid"
+                desc=''
+            fi
+        fi
+    done < <( bz.get_bug "$bugid" | grep -aoPz "\"external_bugs\": \[\n\K([^]]*\n)*" )
 }
 
 
@@ -442,21 +450,114 @@ bz.clean()
 #  Return the product name of the given bug
 bz.get_product()
 {
-    bug_id="${1?}"
+    local bug_id="${1?}"
     bz.get_bug "$bug_id" \
-    | grep -Po "(?<=<product>)[^<]*"
+    | grep -Po '(?<="product": ")[^"]*'
 }
-
 
 
 ######
 # Usage:
 #   bz.is_private_id
 #
-#  return 0 if it's private, 1 otherwise
+#  Return 0 if it's private, 1 otherwise
 bz.is_private()
 {
-    bug_id="${1?}"
-    bz.get_bug "$bug_id" \
-    | grep -q '<bug error="NotPermitted">'
+    local bug_id="${1?}"
+    local BZU=$BZ_USER
+    local BZP=$BZ_PASS
+    unset BZ_USER BZ_PASS
+    bz.get_bug "$bug_id" &>/dev/null
+    rc=$?
+    export BZ_USER=$BZU BZ_PASS=$BZP
+    [[ $rc -eq 0 ]] && return 1
+    return 0
+}
+
+
+######
+# Usage:
+#   bz.get_target_release bug_id
+#
+#  Return the target release of the bug
+bz.get_target_release()
+{
+    local bug_id="${1?}"
+    local tr="$(bz.get_bug "$bug_id" \
+        | grep -oPz "\"target_release\": \[\n\s*\"\K([^]\n\"]*)*" \
+    )"
+    echo $tr
+}
+
+
+######
+# Usage:
+#   bz.check_target_release bug_id branch tr_match [tr_match [...]]
+#
+#     bug_id
+#       Id of the bug to get the target_release from
+#
+#     branch
+#       Name of the current branch
+#
+#     tr_match
+#       Tuple in the form 'branch_name|[!]regexp'
+#
+#       branch_name
+#           name of the branch that should check the regexp
+#
+#       [!]regexp
+#           regular expresion to match the target release against, if preceded
+#            with '!' the expression will be negated
+#
+# Example:
+#
+#   bz.check_target_release 1234 master 'master|3\.3.*' 'master|!3\.[21].*'
+#
+#   That will check that the bug 1234 target release matches:
+#       3\.3.*
+#   And does not match:
+#       3\.3\.0\..*
+#
+#   So 3.3.0 or 3.3 will pass but 3.2 and 3.3.0.1 will not
+#
+#
+# Return false if the target release and branch defined in tr_match
+# configuration variable do not match the given bug's target release
+bz.check_target_release()
+{
+    local bug_id="${1?}"
+    local branch="${2?}"
+    local br_reg_pairs=("${@:3}")
+    local hdr="::bug $bug_id::bz.check_target_release::"
+    ## Check if the target_release should be checked
+    for br_reg in "${br_reg_pairs[@]}"; do
+        if ! [[ $br_reg =~ ^${branch}\|.* ]]; then
+            #not for this branch
+            continue
+        fi
+        echo "${hdr}TR has to match $br_reg" >&2
+        regexp="${br_reg#*|}"
+        target_release="$(bz.get_target_release "$bug_id")"
+        if [[ "${regexp:0:1}" == '!' ]]; then
+            ## Negate the regexp
+            regexp="${regexp:1}"
+            if [[ "$target_release" =~ ^$regexp$ ]]; then
+                echo "${hdr}target release should not match match" \
+                     "$regexp but it is $target_release" >&2
+                echo "$target_release should not match $regexp"
+                return 1
+            fi
+        else
+            if ! [[ "$target_release" =~ $regexp ]]; then
+                echo "${hdr}target release should match $regexp but" \
+                     "it is $target_release" >&2
+                echo "$target_release should match $regexp"
+                return 1
+            fi
+        fi
+        echo "${hdr}Bug tr matches $regexp, it's $target_release" >&2
+        echo "$target_release"
+    done
+    return 0
 }

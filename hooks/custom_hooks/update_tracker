@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+import os
+import logging
+import sys
+from config import load_config
+from gerrit import Gerrit
+from bz import (
+    get_bug_ids,
+    Bugzilla,
+    WrongProduct,
+)
+from tools import get_parser_pc
+
+
+if __name__ == '__main__':
+    parser = get_parser_pc()
+    args, unknown = parser.parse_known_args()
+    if args.verbose:
+        loglevel = logging.DEBUG
+    else:
+        loglevel = logging.INFO
+    logging.basicConfig(level=loglevel,
+                        format='%(asctime)s::'
+                        + str(os.getpid())
+                        + '::%(levelname)s::%(message)s')
+    config = load_config()
+    not_defined_confs = [
+        elem for elem
+        in ('BZ_USER', 'BZ_PASS', 'GERRIT_SRV', 'PRODUCT', 'TRACKER_ID')
+        if elem not in config
+    ]
+    if not_defined_confs:
+        logging.error("Missing configuration values %s"
+                      % ', '.join(not_defined_confs))
+        print "* Update tracker::ERROR, misconfigured, contact admin"
+        sys.exit(1)
+    logging.debug("STARTING::PARAMS %s" % sys.argv)
+    bgz = Bugzilla(
+        user=config['BZ_USER'],
+        passwd=config['BZ_PASS'],
+        )
+    gerrit = Gerrit(config['GERRIT_SRV'])
+    change = gerrit.query(args.commit)[0]
+    bugs = get_bug_ids(args.commit)
+    logging.info("Got bugs %s" % bugs)
+    for bug_id in bugs:
+        logging.info("%s::Updating external" % bug_id)
+        try:
+            bgz.update_external(
+                bug_id,
+                change['number'],
+                config['TRACKER_ID'],
+                description=change['subject'],
+                status=change['status'],
+                branch=args.branch,
+            )
+                #ensure_product=config['PRODUCT'],
+        except WrongProduct, exc:
+            print "* Update tracker::#%s::IGNORED, wrong product %s" \
+                % (bug_id, exc.message)
+        else:
+            print "* Update tracker::#%s::OK" % bug_id
+    if not bugs:
+        print "* Update tracker::IGNORE, no Bug-Url found"
+    logging.debug("FINISHED")

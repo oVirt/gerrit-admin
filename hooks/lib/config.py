@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-#encoding: utf-8
 import re
 import os
 from os.path import (
@@ -58,7 +57,7 @@ class Config(dict):
             return dict.__getitem__(self, item)
         except KeyError:
             logger.error('Unable to get config value %s from any of the '
-                         'config files [%s]' % (item,', '.join(self.files)))
+                         'config files [%s]' % (item, ', '.join(self.files)))
             raise
 
 

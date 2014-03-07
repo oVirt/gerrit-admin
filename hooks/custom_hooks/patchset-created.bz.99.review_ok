@@ -2,13 +2,9 @@
 source gerrit.sh
 source conf.sh
 source bz.sh
+source tools.sh
 
 ###############################################################################
 ## MAIN
-## get the config
-conf.load
-gerrit.parse_params "$@"
-message="$(conf.t_get message)"
-gerrit.review "0" "$message"
-echo "Got good review"
+tools.review "" ""
 bz.clean

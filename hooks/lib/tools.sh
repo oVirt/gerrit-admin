@@ -63,3 +63,22 @@ tools.hash()
     local length="${2:-10}"
     echo "$what" | md5sum | head -c$length
 }
+
+
+## log to stderr
+tools.log()
+{
+    echo "$@" >&2
+}
+
+
+## print a review message with the format expeted by the hook dispatcher
+tools.review()
+{
+    local cr="${1}"
+    local ver="${2}"
+    local msg="${3}"
+    echo "$cr"
+    echo "$ver"
+    echo -e "$msg"
+}

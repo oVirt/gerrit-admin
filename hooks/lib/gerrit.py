@@ -20,12 +20,12 @@ class Gerrit(object):
         )
 
     def generate_cmd(self, action, *options):
-        cmd =  list(self.cmd)
+        cmd = list(self.cmd)
         cmd.append(action)
         cmd.extend(options)
         return cmd
 
-    def review(self, commit, message, project, verify=None, review=None):
+    def review(self, commit, project, message, verify=None, review=None):
         gerrit_cmd = self.generate_cmd(
             'review',
             commit,
@@ -33,18 +33,19 @@ class Gerrit(object):
             '--project=%s' % project,
         )
         if verify is not None:
-            gerrit_cmd.append('--verify=%s' % str(verify))
+            gerrit_cmd.append('--verified=%s' % str(verify))
         if review is not None:
             gerrit_cmd.append('--code-review=%s' % str(review))
+        logging.info("Running gerrit_cmd:%s" % gerrit_cmd)
         cmd = subprocess.Popen(gerrit_cmd,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
         out, err = cmd.communicate()
         if cmd.returncode:
             raise Exception("Execution of %s returned %d:\n%s"
                             % (' '.join(gerrit_cmd),
-                                cmd.returncode,
-                                err))
+                               cmd.returncode,
+                               err))
         return 0
 
     def query(self, query, out_format='json'):
@@ -55,8 +56,8 @@ class Gerrit(object):
         )
         logger.debug("Executing %s" % ' '.join(gerrit_cmd))
         cmd = subprocess.Popen(gerrit_cmd,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
         out, err = cmd.communicate()
         if cmd.returncode:
             raise Exception("Execution of %s returned %d:\n%s"
