@@ -170,6 +170,7 @@ bz.login()
         --bz-user "$bz_user" \
         --bz-pass "$bz_password" \
         Bug.get "ids=[$bug_id]" \
+        "extra_fields=[\"flags\", \"external_bugs\"]" \
     )"
     [[ "$res" =~ ^LOGIN\ ERROR.* ]] \
     && {

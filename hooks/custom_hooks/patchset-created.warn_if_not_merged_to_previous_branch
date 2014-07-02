@@ -48,7 +48,7 @@ def give_warning(gerrit, commit, project, open_branches, no_patch_branches):
         long_msg.append(
             "WARNING: This patch does not exist yet on all the newer branches"
             "\n  Missing on : %s" % ', '.join(no_patch_branches))
-        msg.append("* Check mrged to previous::WARN, Still missing on branches %s"
+        msg.append("* Check merged to previous::WARN, Still missing on branches %s"
                    % ', '.join(no_patch_branches))
     print '-1\n0\n' + '\n'.join(msg)
     logging.error('\n'.join(long_msg))
