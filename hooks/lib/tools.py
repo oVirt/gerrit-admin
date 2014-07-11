@@ -84,6 +84,20 @@ def ver_is_newer(branch1, branch2):
             % (branch1, branch2))
 
 
+def branch_has_change(branch, change, repo_path):
+    repo = Repo(repo_path)
+    if not branch.startswith('refs/heads/'):
+        branch = 'refs/heads/' + branch
+    branch = repo.refs[branch]
+    msg = '\nChange-Id: ' + change
+    matches = (
+        True for parent in repo.get_walker(include=[branch])
+        if msg in parent.commit.message
+    )
+    is_in = next(matches, False)
+    return is_in
+
+
 def get_branches(repo_path):
     repo = Repo(repo_path)
     return [ref[11:] for ref in repo.get_refs()
