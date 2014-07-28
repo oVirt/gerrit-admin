@@ -75,7 +75,8 @@ for bug_id in "${bug_ids[@]}"; do
     res="$(bz.check_target_release \
         "$bug_id" \
         "$branch" \
-        "${CHECK_TARGET_RELEASE[@]}")"
+        "${CHECK_TARGET_RELEASE[@]}" \
+        "master|!.*")"
     if [[ $? -ne 0 ]]; then
         tools.log "${hdr}Target release check failed, skipping bug"
         message+="${message:+\n}* Check TR::#$bug_id::ERROR, $res"
