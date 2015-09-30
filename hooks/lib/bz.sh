@@ -459,6 +459,19 @@ bz.get_product()
 
 ######
 # Usage:
+#   bz.get_classification bug_id
+#
+#  Return the classification of the given bug
+bz.get_classification()
+{
+    local bug_id="${1?}"
+    bz.get_bug "$bug_id" \
+    | grep -Po '(?<="classification": ")[^"]*'
+}
+
+
+######
+# Usage:
 #   bz.is_private_id
 #
 #  Return 0 if it's private, 1 otherwise

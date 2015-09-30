@@ -15,6 +15,9 @@
 #       target release, if regexp starts with '!' it will be negated
 #   CONTACT - email/s for the contact, if not specified, will use
 #       dcaroest@redhat.com
+#   CLASSIFICATION - Bugzilla classification allowed (grouping products),
+#       if the product check fails, it will try with this after, defaults to
+#       'oVirt'
 ###############################################################################
 
 source bz.sh
@@ -30,6 +33,7 @@ gerrit.parse_params "$@"
 ## Parse the configuration
 conf.load
 
+CLASSIFICATION=${CLASSIFICATION:=oVirt}
 message=""
 result="0"
 hdr="Check Product"
@@ -47,18 +51,29 @@ bug_ids=($(bz.get_bug_id $commit))
 failed=false
 got_1_correct_bug=false
 for bug_id in ${bug_ids[@]}; do
+    # Check if the prod or the classification match
     prod="$(bz.get_product "$bug_id")"
-    ## If it has the wrong product, ignore that bug
     if ! tools.is_in "$prod" "${PRODUCTS[@]}" >/dev/null; then
-        tools.log "$bug_id::ERROR Wrong product $prod"
-        message+="${message:+\n}* $hdr::#$bug_id::SKIPPED, not (${PRODUCTS[@]}) "
-        message+="product but $prod"
-        continue
+        classification="$(bz.get_classification "$bug_id")"
+        if [[ "$classification" != "$CLASSIFICATION" ]]; then
+            message+="${message:+\n}* $hdr::#$bug_id::SKIPPED, "
+            tools.log "$bug_id::ERROR" \
+                "Wrong product $prod and wrong classification $classification"
+            message+=" and classification $classification not $CLASSIFICATION"
+        else
+            tools.log "$bug_id::INFO" \
+                "Wrong product $prod but good classification $classification"
+            got_1_correct_bug=true
+            message+="${message:+\n}* $hdr::#$bug_id::OK, "
+            message+="Correct classification $classification"
+        fi
     else
         got_1_correct_bug=true
-        message+="${message:+\n}* $hdr::#$bug_id::OK, Correct product $prod"
+        message+="${message:+\n}* $hdr::#$bug_id::OK, "
+        message+="Correct product $prod"
     fi
 done
+
 if ! $got_1_correct_bug; then
     ## if we are not, just warn
     message+="${message:+\n}"
