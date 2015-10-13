@@ -491,6 +491,21 @@ bz.is_private()
 
 ######
 # Usage:
+#   bz.get_target_milestone bug_id
+#
+#  Return the target milestone of the bug
+bz.get_target_milestone()
+{
+    local bug_id="${1?}"
+    local tm="$(bz.get_bug "$bug_id" \
+        | grep -Po '(?<="target_milestone": ")[^"]*'
+    )"
+    echo $tm
+}
+
+
+######
+# Usage:
 #   bz.get_target_release bug_id
 #
 #  Return the target release of the bug
@@ -544,6 +559,7 @@ bz.check_target_release()
     local branch="${2?}"
     local br_reg_pairs=("${@:3}")
     local hdr="::bug $bug_id::bz.check_target_release::"
+    locas res
     ## Check if the target_release should be checked
     for br_reg in "${br_reg_pairs[@]}"; do
         if ! [[ $br_reg =~ ^${branch}\|.* ]]; then
@@ -553,25 +569,95 @@ bz.check_target_release()
         echo "${hdr}TR has to match $br_reg" >&2
         regexp="${br_reg#*|}"
         target_release="$(bz.get_target_release "$bug_id")"
-        if [[ "${regexp:0:1}" == '!' ]]; then
-            ## Negate the regexp
-            regexp="${regexp:1}"
-            if [[ "$target_release" =~ ^$regexp$ ]]; then
+        tools.match "$target_release" "$regexp"
+        case $? in
+            $TOOLS_SHOULD_NOT_MATCH)
                 echo "${hdr}target release should not match match" \
                      "$regexp but it is $target_release" >&2
                 echo "$target_release should not match $regexp"
                 return 1
-            fi
-        else
-            if ! [[ "$target_release" =~ $regexp ]]; then
+                ;;
+            $TOOLS_DOES_NOT_MATCH)
                 echo "${hdr}target release should match $regexp but" \
                      "it is $target_release" >&2
                 echo "$target_release should match $regexp"
                 return 1
-            fi
-        fi
+                ;;
+        esac
         echo "${hdr}Bug tr matches $regexp, it's $target_release" >&2
         echo "$target_release"
+    done
+    return 0
+}
+
+
+######
+# Usage:
+#   bz.check_target_milestone bug_id branch tm_match [tm_match [...]]
+#
+#     bug_id
+#       Id of the bug to get the target_milestone from
+#
+#     branch
+#       Name of the current branch
+#
+#     tm_match
+#       Tuple in the form 'branch_name|[!]regexp'
+#
+#       branch_name
+#           name of the branch that should check the regexp
+#
+#       [!]regexp
+#           regular expresion to match the target milestone against, if preceded
+#            with '!' the expression will be negated
+#
+# Example:
+#
+#   bz.check_target_milestone 1234 master 'master|3\.3.*' 'master|!3\.[21].*'
+#
+#   That will check that the bug 1234 target milestone matches:
+#       3\.3.*
+#   And does not match:
+#       3\.3\.0\..*
+#
+#   So 3.3.0 or 3.3 will pass but 3.2 and 3.3.0.1 will not
+#
+#
+# Return false if the target milestone and branch defined in tm_match
+# configuration variable do not match the given bug's target milestone
+bz.check_target_milestone()
+{
+    local bug_id="${1?}"
+    local branch="${2?}"
+    local br_reg_pairs=("${@:3}")
+    local hdr="::bug $bug_id::bz.check_target_milestone::"
+    local res
+    ## Check if the target_milestone should be checked
+    for br_reg in "${br_reg_pairs[@]}"; do
+        if ! [[ $br_reg =~ ^${branch}\|.* ]]; then
+            #not for this branch
+            continue
+        fi
+        echo "${hdr}TM has to match $br_reg" >&2
+        regexp="${br_reg#*|}"
+        target_milestone="$(bz.get_target_milestone "$bug_id")"
+        tools.match "$target_milestone" "$regexp"
+        case $? in
+            $TOOLS_SHOULD_NOT_MATCH)
+                echo "${hdr}target milestone should not match match" \
+                     "$regexp but it is $target_milestone" >&2
+                echo "$target_milestone should not match $regexp"
+                return 1
+                ;;
+            $TOOLS_DOES_NOT_MATCH)
+                echo "${hdr}target milestone should match $regexp but" \
+                     "it is $target_milestone" >&2
+                echo "$target_milestone should match $regexp"
+                return 1
+                ;;
+        esac
+        echo "${hdr}Bug tm matches $regexp, it's $target_milestone" >&2
+        echo "$target_milestone"
     done
     return 0
 }

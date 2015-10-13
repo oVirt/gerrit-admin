@@ -82,3 +82,55 @@ tools.review()
     echo "$ver"
     echo -e "$msg"
 }
+
+
+######
+# Usage:
+#   tools.match base_string match_string [match_string [...]]
+#
+#     base_string
+#       String to check for a match
+#
+#     match_string
+#       Tuple in the form '[!]regexp'
+#
+#       [!]regexp
+#           regular expresion to match the base string against, if preceded
+#            with '!' the expression will be negated
+#
+# Example:
+#
+#   tools.match 3.2.1 'master|3\.3.*' 'master|!3\.[21].*'
+#
+#   That will check that the string 3.2.1 matches:
+#       3\.3.*
+#   And does not match:
+#       3\.3\.0\..*
+#
+# Return TOOLS.MATCHES|0 if the base_string matches all of the match_string
+# passed, TOOLS.DOES_NOT_MATCH if it does not match because of a positive
+# match and TOOLS.SHOULD_NOT_MATCH if it was because of a negative match
+# (started with !)
+TOOLS_MATCHES=0
+TOOLS_DOES_NOT_MATCH=1
+TOOLS_SHOULD_NOT_MATCH=2
+
+tools.match()
+{
+    local base_string="${1?}"
+    local match_strings=("${@:2}")
+    for regexp in "${match_strings[@]}"; do
+        if [[ "${regexp:0:1}" == '!' ]]; then
+            ## Negate the regexp
+            regexp="${regexp:1}"
+            if [[ "$base_string" =~ $regexp ]]; then
+                return $TOOLS_SHOULD_NOT_MATCH
+            fi
+        else
+            if ! [[ "$base_string" =~ $regexp ]]; then
+                return $TOOLS_DOES_NOT_MATCH
+            fi
+        fi
+    done
+    return $TOOLS_MATCHES
+}

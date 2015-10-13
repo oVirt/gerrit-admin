@@ -11,15 +11,10 @@
 #   PRODUCTS - Array with the products allowed
 #   STABLE_BRANCHES - String with the space separated list of stable branches
 #       to do the extra checks
-#   CHECK_TARGET_RELEASE - Pairs of 'branch|regexp' to match agains the bug
-#       target release, if regexp starts with '!' it will be negated
+#   CHECK_TARGET_MILESTONE - Pairs of 'branch|regexp' to match agains the bug
+#       target milestone, if regexp starts with '!' it will be negated
 #   CONTACT - email/s for the contact, if not specified, will use
 #       dcaroest@redhat.com
-#
-#
-#    DEPRECATED - use the check_correct_milestone hook instead for newer
-#    projects
-#
 ###############################################################################
 
 source bz.sh
@@ -37,7 +32,7 @@ conf.load
 
 message=""
 result="0"
-hdr="Check TR"
+hdr="Check TM"
 ## Check if we have to manage that branch
 if [[ -n $BRANCHES ]] && ! vindex=$(tools.is_in "$branch" "${BRANCHES[@]}"); then
     tools.review "" "" "* $hdr::SKIP, not in a monitored branch (${BRANCHES[*]})"
@@ -59,22 +54,22 @@ bug_ids=($(bz.get_bug_id $commit))
 failed=false
 tools.log "Got bug ids ${bug_ids[@]}"
 for bug_id in ${bug_ids[@]}; do
-    hdr="Check TR::#$bug_id"
-    ## If we are in the stable branch and the target release is not correct,
+    hdr="Check TM::#$bug_id"
+    ## If we are in the stable branch and the target milestone is not correct,
     ## fail
     if tools.is_in "$branch" ${STABLE_BRANCHES[@]} >/dev/null; then
-        res="$(bz.check_target_release \
+        res="$(bz.check_target_milestone \
             "$bug_id" \
             "$branch" \
-            "${CHECK_TARGET_RELEASE[@]}")"
+            "${CHECK_TARGET_MILESTONE[@]}")"
         if [[ $? -ne 0 ]]; then
             message+="${message:+\n}* $hdr::ERROR, wrong target "
-            message+="release for stable branch, $res"
+            message+="milestone for stable branch, $res"
             failed=true
             continue
         else
             message+="${message:+\n}* $hdr::OK, correct target "
-            message+="release $res"
+            message+="milestone $res"
         fi
     else
         tools.log "$hdr::INFO: Current branch $branch not in any of the " \
