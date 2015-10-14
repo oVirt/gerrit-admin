@@ -42,7 +42,7 @@ def get_unmerged_newer_branches(gerrit, change_id, cur_branch, project,
         if not branch_has_change(branch, change_id, repo_dir):
             logging.error(
                 'change {change_id} is missing on branch {branch}'.format(
-                    change=change_id,
+                    change_id=change_id,
                     branch=branch,
                 )
             )
