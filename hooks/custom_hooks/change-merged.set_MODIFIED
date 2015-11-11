@@ -46,10 +46,11 @@ for bug_id in "${bug_ids[@]}"; do
         exit 2
     }
     ### Skip downstream bugs
-    product="$(bz.get_product "$bug_id")"
-    if ! [[ "$product" =~ ^oVirt$ ]]; then
-        tools.log "${hdr}Not an oVirt bug, belongs to $product"
-        message+="${message:+\n}$msg_hdr::IGNORE, not oVirt prod but $product"
+    classification="$(bz.get_classification "$bug_id")"
+    if ! [[ "$classification" =~ ^oVirt$ ]]; then
+        tools.log "${hdr}Not an oVirt bug, belongs to $classification"
+        message+="${message:+\n}$msg_hdr::IGNORE, not oVirt classification "
+        message+="but $classification"
         continue
     fi
     ## Check if all the external bugs are closed
