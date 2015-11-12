@@ -71,20 +71,6 @@ for bug_id in "${bug_ids[@]}"; do
         message+="closed, check ${open_patches}"
         continue
     fi
-    ## Check the target_release
-    tools.log "${hdr}Checking target release"
-    res="$(bz.check_target_release \
-        "$bug_id" \
-        "$branch" \
-        "${CHECK_TARGET_RELEASE[@]}" \
-        "master|!.*")"
-    if [[ $? -ne 0 ]]; then
-        tools.log "${hdr}Target release check failed, skipping bug"
-        message+="${message:+\n}* Check TR::#$bug_id::ERROR, $res"
-        continue
-    else
-        message+="${message:+\n}* Check TR::#$bug_id::OK"
-    fi
     ## Modify the bug status
     if res=$(bz.update_status "$bug_id" "MODIFIED" "$commit"); then
         tools.log "::bug $bug_id::Status updated on bug #$bug_id for gerrit "
