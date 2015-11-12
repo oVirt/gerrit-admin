@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 import argparse
+import os
 import re
+import sys
+
 from dulwich.repo import Repo
 
 
@@ -8,14 +11,15 @@ class NotComparableVersions(Exception):
     pass
 
 
-def get_parser_pc():
+def get_parser_pc(description=None):
     """
     Build the parser for patchset-created hook type
     """
     parser = argparse.ArgumentParser(
-        description=('This dispatcher handles the'
-                     ' special tags and hook'
-                     ' execution'),
+        description=(
+            description or 'Patchset created gerrit hook - '
+            + os.path.basename(sys.argv[0])
+        )
     )
     for arg in ('change', 'project', 'branch', 'commit'):
         parser.add_argument('--' + arg,
@@ -30,6 +34,27 @@ def get_parser_pc():
     return parser
 
 
+def get_parser_comment_added(description=None):
+    """
+    Build the parser for comment-added hook type
+    """
+    parser = argparse.ArgumentParser(
+        description=(
+            description or 'Comment added gerrit hook - '
+            + os.path.basename(sys.argv[0])
+        )
+    )
+    for arg in ('change', 'project', 'branch', 'commit'):
+        parser.add_argument('--' + arg, action='store', required=True)
+    for arg in (
+        'author', 'is-draft', 'change-url', 'comment', 'uploader', 'topic',
+        'change-owner', 'Continuous-Integration',
+    ):
+        parser.add_argument('--' + arg, action='store', required=False)
+    parser.add_argument('-v', '--verbose', action='store_true', default=False)
+    return parser
+
+
 def ver_is_newer(branch1, branch2):
     """
     Returns true if branch1 isnewer than branch2, according to:
@@ -37,19 +62,19 @@ def ver_is_newer(branch1, branch2):
     (X+1).Y > X.(Y+1) > X.Y > X.Y.Z
     """
     try:
-        ## Special case for master
+        # Special case for master
         if branch1 == 'master' and branch2 != 'master':
             return True
         elif branch2 == 'master' and branch1 != 'master':
             return False
         elif branch1 == branch2:
             return False
-        ## strip the non-numbered part
+        # strip the non-numbered part
         if '-' in branch1:
             branch1 = branch1.rsplit('-', 1)[1]
         if '-' in branch2:
             branch2 = branch2.rsplit('-', 1)[1]
-        ## get the first digit of the version string
+        # get the first digit of the version string
         if '.' in branch1:
             b1_maj, b1_rest = branch1.split('.', 1)
         else:
@@ -60,22 +85,22 @@ def ver_is_newer(branch1, branch2):
         else:
             b2_maj = branch2
             b2_rest = None
-        ## make sure we have integers as majors
+        # make sure we have integers as majors
         b1_maj = int(b1_maj)
         b2_maj = int(b2_maj)
-        ## Check which one is newer
+        # Check which one is newer
         if b1_maj > b2_maj:
             return True
         elif b2_maj > b1_maj:
             return False
         else:
-            ## in case the majors match, strip them and check again
+            # in case the majors match, strip them and check again
             if b1_rest and b2_rest:
                 return ver_is_newer(b1_rest, b2_rest)
-            ## if b1=X and b2=X.Y, b1 is newer
+            # if b1=X and b2=X.Y, b1 is newer
             elif b2_rest:
                 return True
-            ## if b1=X.Y and b2=X, b1 is newer
+            # if b1=X.Y and b2=X, b1 is newer
             elif b1_rest:
                 return False
     except (IndexError, ValueError):

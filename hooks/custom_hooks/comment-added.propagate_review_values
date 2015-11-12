@@ -1,0 +1,131 @@
+#!/usr/bin/env python
+import os
+import logging
+import sys
+from config import load_config
+from gerrit import (
+    Gerrit,
+    Change,
+)
+from tools import get_parser_comment_added
+
+
+def init_logging(verbose=False):
+    if verbose:
+        loglevel = logging.DEBUG
+    else:
+        loglevel = logging.INFO
+    logging.basicConfig(
+        level=loglevel,
+        format=(
+            '%(asctime)s::'
+            + str(os.getpid())
+            + '::%(levelname)s::%(message)s'
+        ),
+    )
+
+
+def load_hook_config():
+    config = load_config()
+    missing_confs = [
+        elem
+        for elem in ('JENKINS_GERRIT_SRV',)
+        if elem not in config
+    ]
+    if missing_confs:
+        logging.error(
+            "Missing configuration values %s"
+            % ', '.join(missing_confs)
+        )
+        print "* Propagate review value::ERROR, misconfigured, contact admin"
+        return False
+    return config
+
+
+def resolve_latest_ci_value(newer_changes, current_value, current_reviewer,
+                            current_patch_num):
+    latest_valid_patch_num = current_patch_num
+    for change in newer_changes:
+        this_change_ci_value = Change.get_ci_value(
+            change,
+            by_users=(current_reviewer,),
+        )
+        if this_change_ci_value != 0 and Change.has_code_change(change):
+            current_value = this_change_ci_value
+            latest_valid_patch_num = change.get('number')
+    return current_value, latest_valid_patch_num
+
+
+def get_current_change_by_commit(changes, cur_commit):
+    for index, change in enumerate(changes):
+        if change.get('revision') == cur_commit:
+            break
+    else:
+        error_msg = 'No change found with commit %s' % cur_commit
+        logging.error(error_msg)
+        raise Exception(error_msg)
+
+    return change, changes[index + 1:]
+
+
+def main():
+    parser = get_parser_comment_added()
+    args, unknown = parser.parse_known_args()
+    init_logging(args.verbose)
+    logging.debug("STARTING::PARAMS %s" % sys.argv)
+
+    ci_value = getattr(args, 'Continuous_Integration', '0')
+    if ci_value in ('0', None):
+        logging.info('No CI flag set, skipping')
+        return
+    logging.info('Got CI flag %s' % ci_value)
+
+    if 'gerrit-hooks' in args.author:
+        logging.info('We (gerrit-hooks) did send that review, skipping')
+        return
+
+    config = load_hook_config()
+    if not config:
+        return 1
+
+    gerrit = Gerrit(config['JENKINS_GERRIT_SRV'])
+    # gerrit returns the changes already sorted by history
+    changes = gerrit.query_patchsets(args.commit, all_approvals=True)
+    change, newer_changes = get_current_change_by_commit(
+        changes=changes,
+        cur_commit=args.commit
+    )
+
+    if not newer_changes:
+        logging.info('No newer changes to propagate to, skipping')
+        return
+
+    ci_value, last_valid_ci_patch_num = resolve_latest_ci_value(
+        newer_changes=newer_changes,
+        current_value=ci_value,
+        current_reviewer=args.author,
+        current_patch_num=change.get('number'),
+    )
+
+    latest_change = changes[-1]
+    if Change.has_code_change(latest_change):
+        logging.info(
+            'Latest change has code changes, jenkins will take care of it'
+        )
+        return
+
+    review_message = (
+        'Propagate review hook: Continuous Integration value inherited from '
+        'patch %s' % last_valid_ci_patch_num
+    )
+    gerrit.review(
+        commit=latest_change.get('revision'),
+        project=args.project,
+        ci=ci_value,
+        message=review_message,
+    )
+    logging.info("FINISHED")
+
+
+if __name__ == '__main__':
+    sys.exit(main() or 3)

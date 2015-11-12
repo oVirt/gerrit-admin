@@ -23,7 +23,7 @@ import subprocess
 import argparse
 import logging
 from dulwich.repo import Repo
-## Load also the hook libs
+# Load also the hook libs
 os.environ["PATH"] = os.environ["PATH"] + ':' \
     + os.path.dirname(os.path.realpath(__file__)) + '/lib'
 os.environ["PYTHONPATH"] = os.environ.get("PYTHONPATH", "") \
@@ -80,7 +80,7 @@ def rerun(to_rerun_hooks, current_hooks, args):
     :param to_run_hooks: array with the csv string passed to the tag
     :param current_hooks: array with the current available hooks
     """
-    ## When rerunning use only the patchset-created hooks
+    # When rerunning use only the patchset-created hooks
     current_hooks = get_hooks(os.path.join(os.environ['GIT_DIR'], 'hooks'),
                               'patchset-created')
     to_rerun_hooks = csv_to_set(to_rerun_hooks)
@@ -97,7 +97,7 @@ def rerun(to_rerun_hooks, current_hooks, args):
     return to_rerun
 
 
-#Tags to look for specified like this:
+# Tags to look for specified like this:
 #
 # {
 #     tag_name: (
@@ -105,7 +105,7 @@ def rerun(to_rerun_hooks, current_hooks, args):
 #         function_to_run
 #     )
 # }
-## Commit message tags
+# Commit message tags
 COMMIT_TAGS = {
     'ignore': (
         'Ignore-Hooks: ',
@@ -116,7 +116,7 @@ COMMIT_TAGS = {
         run_only
     ),
 }
-## Gerrit comment tags
+# Gerrit comment tags
 COMMENT_TAGS = {
     'rerun': (
         'Rerun-Hooks: ',
@@ -257,6 +257,11 @@ def parse_stdout(stdout):
     will assume that's the start of the message and count the non-specified
     votes as abstentions
 
+    Skipping hooks comment - return codes:
+
+    If rc == 3 the execution of the hook will not be added to the comments, on
+    any other case, it will add a comment with the message provided
+
 
     Examples:
     ################
@@ -295,16 +300,16 @@ def parse_stdout(stdout):
             return result
         try:
             elem = stdout.pop(0)
-            ## non-voting
+            # non-voting
             if not elem:
                 elem = None
-            ## voting
+            # voting
             else:
                 elem = int(elem)
                 result[elem_name] = elem
-        ## So we don't have a number, the message should start here
+        # So we don't have a number, the message should start here
         except ValueError:
-            ## put the line back
+            # put the line back
             stdout.insert(0, elem)
             break
     result['msg'] = '\n'.join(stdout) or None
@@ -326,11 +331,19 @@ def run_hooks(path, hooks, chain='NONE'):
         cmd.extend(params)
         logstr = chain + "::" + hook + "::"
         logging.info(logstr + "RUNNING::" + ' '.join(cmd))
-        pipe = subprocess.Popen(cmd,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
+        pipe = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         output, error = pipe.communicate()
-        logging.debug("Raw output:\n################\n%s\n###################\n" % output)
+        logging.debug(
+            "Raw output:\n################\n%s\n###################\n"
+            % output
+        )
+        if pipe.returncode == 3:
+            error and logging.warn(logstr + '\n' + error)
+            continue
         result = parse_stdout(output)
         if global_result is None:
             global_result = result
@@ -360,7 +373,7 @@ def run_chains(path, hooks):
     :param path: Path where the hooks are located
     :param hooks: hook names to run
     """
-    ## add the hooks lib dir to the path
+    # add the hooks lib dir to the path
     results = {}
     logging.info("::RUNNING HOOKS::%s", hooks)
     chains = get_chains(hooks)
@@ -409,7 +422,7 @@ def send_summary(change_id, project, results):
     msg = []
     code_review = None
     verified = None
-    ## Generate final review
+    # Generate final review
     for result in results.itervalues():
         if result['msg']:
             msg.append(result['msg'])
@@ -421,7 +434,7 @@ def send_summary(change_id, project, results):
                 and (verified is None
                      or result['verified'] < verified):
             verified = result['verified']
-    ### Reset if neutral review
+    # Reset if neutral review
     if verified is None:
         verified = 0
     if code_review is None:
@@ -444,7 +457,7 @@ def main():
     parser = get_parser()
     known_args, rest = parser.parse_known_args()
     res = reduce(flatten, vars(known_args).items(), [])
-    ## This second time is to force the existence of the required args
+    # This second time is to force the existence of the required args
     parser.parse_args(res)
     if 'GIT_DIR' not in os.environ:
         logging.error("Set the GIT_DIR to the repository path")
@@ -458,21 +471,21 @@ def main():
     tags = {}
     change_ident = None
     if known_args.commit:
-        ## get tags from the commit message
+        # get tags from the commit message
         tags.update(get_commit_tags(known_args.commit))
         change_ident = known_args.commit
     elif known_args.patchset and known_args.change:
         change_ident = "%s,%s" % (known_args.patchset, known_args.change)
     if known_args.comment:
-        ## and from the gerrit comment
+        # and from the gerrit comment
         tags.update(get_comment_tags(known_args.comment))
     for tag_val, fun in tags.itervalues():
-        ## Execute the functions with the tag value, the current available
-        ##  hooks, and the args so they can be modified
+        # Execute the functions with the tag value, the current available
+        #  hooks, and the args so they can be modified
         hooks = fun(tag_val, hooks, known_args)
-    ## if we found any hooks, run them
+    # if we found any hooks, run them
     if hooks:
-        ## keep them sorted (will be sorted again later though)
+        # keep them sorted (will be sorted again later though)
         hooks.sort()
         results = run_chains(os.path.join(os.environ['GIT_DIR'], 'hooks'),
                              hooks)
