@@ -46,9 +46,9 @@ class Bugzilla(object):
             logging.error("Unable to get bug %s\n%s"
                           % (str(bug_id), bug['faults']))
             return None
-        ## Only one response when asking by the commit hash
+        # Only one response when asking by the commit hash
         bug = bug['bugs'][0]
-        ## check product
+        # check product
         if ensure_product is not None and bug['product'] != ensure_product:
             raise WrongProduct(bug['product'])
         for external in bug['external_bugs']:
@@ -59,33 +59,31 @@ class Bugzilla(object):
     def update_external(self, bug_id, external_bug_id, ext_type_id,
                         status=None, description=None, branch=None,
                         ensure_product=None):
-        orig_external = self.get_external(bug_id, external_bug_id,
-                                          ensure_product=ensure_product)
+        orig_external = self.get_external(
+            bug_id,
+            external_bug_id,
+            ensure_product=ensure_product)
         external = {}
         external['ext_type_id'] = ext_type_id
         external['ext_bz_bug_id'] = external_bug_id
+        if description is not None:
+            external['ext_description'] = description
+        elif orig_external:
+            external['ext_description'] = orig_external['ext_description']
+        if status is not None:
+            external['ext_status'] = status
+        elif orig_external:
+            external['ext_status'] = orig_external['ext_status']
+        if branch is not None:
+            external['ext_priority'] = branch
+        elif orig_external:
+            external['ext_priority'] = orig_external['ext_priority']
         if not orig_external:
-            if description is not None:
-                external['ext_description'] = description
-            if status is not None:
-                external['ext_status'] = status
             self.ExternalBugs.add_external_bug(self.wrap({
                 'bug_ids': [bug_id],
                 'external_bugs': [external],
             }))
         else:
-            if description is not None:
-                external['ext_description'] = description
-            else:
-                external['ext_description'] = orig_external['ext_description']
-            if status is not None:
-                external['ext_status'] = status
-            else:
-                external['ext_status'] = orig_external['ext_status']
-            if branch is not None:
-                external['ext_priority'] = branch
-            else:
-                external['ext_priority'] = orig_external['ext_priority']
             self.ExternalBugs.update_external_bug(self.wrap(external))
 
 
