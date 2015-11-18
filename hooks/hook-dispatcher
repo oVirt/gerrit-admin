@@ -380,7 +380,11 @@ def run_chains(path, hooks):
     for c_name, c_hooks in chains.iteritems():
         logging.info(c_name + "::STARTING")
         results[c_name] = run_hooks(path, c_hooks, c_name)
-        if results[c_name]['msg'] is None:
+        if results[c_name] is None:
+            logging.info(c_name + "::FINISHED")
+            results.pop(c_name)
+            continue
+        elif results[c_name]['msg'] is None:
             results[c_name]['msg'] = '* %s: OK' % c_name
         logging.info(c_name + "::FINISHED with result:\n"
                      + str(results[c_name]))
@@ -489,7 +493,7 @@ def main():
         hooks.sort()
         results = run_chains(os.path.join(os.environ['GIT_DIR'], 'hooks'),
                              hooks)
-        if change_ident:
+        if change_ident and results:
             send_summary(change_ident, known_args.project, results)
     logging.info("FINISHED")
 
