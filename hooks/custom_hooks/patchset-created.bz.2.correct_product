@@ -59,6 +59,7 @@ for bug_id in ${bug_ids[@]}; do
             message+="${message:+\n}* $hdr::#$bug_id::SKIPPED, "
             tools.log "$bug_id::ERROR" \
                 "Wrong product $prod and wrong classification $classification"
+            message+="Wrong product $prod"
             message+=" and classification $classification not $CLASSIFICATION"
         else
             tools.log "$bug_id::INFO" \
