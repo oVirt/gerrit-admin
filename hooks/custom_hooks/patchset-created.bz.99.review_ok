@@ -1,4 +1,6 @@
 #!/bin/bash
+## @file
+## Sends a review that cleans up any previous one
 source gerrit.sh
 source conf.sh
 source bz.sh

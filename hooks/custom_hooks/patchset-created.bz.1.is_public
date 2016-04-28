@@ -1,21 +1,18 @@
 #!/bin/bash
-###############################################################################
-# Checks that the patch has Bug-Url in the git commit message, breaks the
-# chain if not
-#
-# Config Options:
-#   BRANCHES - List of relevant branches, only those branches listed here will
-#              be tested as a bash array: BRANCHES=('rhev-3.2' 'rhev-3.1')
-#   BZ_USER - Bz username to use when logging in
-#   BZ_PASS - Bz password to use when logging in
-#   PRODUCTS - Array with the products allowed
-#   STABLE_BRANCHES - String with the space separated list of stable branches
-#       to do the extra checks
-#   CHECK_TARGET_RELEASE - Pairs of 'branch|regexp' to match agains the bug
-#       target release, if regexp starts with '!' it will be negated
-#   CONTACT - email/s for the contact, if not specified, will use
-#       dcaroest@redhat.com
-###############################################################################
+## @file
+## Checks that the patch has Bug-Url in the git commit message, breaks the
+## chain if not. Config Options:
+##   - BRANCHES - List of relevant branches, only those branches listed here will
+##              be tested as a bash array: BRANCHES=('rhev-3.2' 'rhev-3.1')
+##   - BZ_USER - Bz username to use when logging in
+##   - BZ_PASS - Bz password to use when logging in
+##   - PRODUCTS - Array with the products allowed
+##   - STABLE_BRANCHES - String with the space separated list of stable branches
+##       to do the extra checks
+##   - CHECK_TARGET_RELEASE - Pairs of 'branch|regexp' to match agains the bug
+##       target release, if regexp starts with '!' it will be negated
+##   - CONTACT - email/s for the contact, if not specified, will use
+##       infra at ovirt dot org
 
 source bz.sh
 source tools.sh
@@ -37,7 +34,7 @@ hdr="Check Public Bug"
 bz.login "$BZ_USER" "$BZ_PASS" \
 || {
     message+="${message:+\n}* Bug-Url: ERROR, There was an error logging into bugzilla, "
-    message+="please contact the administrator ${CONTACT:-dcaroest@redhat.com}"
+    message+="please contact the administrator ${CONTACT:-infra@ovirt.org}"
     tools.review "" "" "$message"
     bz.clean
     exit 2

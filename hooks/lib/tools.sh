@@ -1,12 +1,17 @@
 #!/bin/bash
-###########
-## helpful functions to be used on the gerrit hook scripts
+## @file tools.sh
+## Helpful miscellaneous functions
 
-## Check if a value is in the given list of elements
-## Usage:
-##    tools.is_in value elem1 [elem2 [...]]
-tools.is_in()
-{
+TOOLS_MATCHES=0
+TOOLS_DOES_NOT_MATCH=1
+TOOLS_SHOULD_NOT_MATCH=2
+
+
+## @fn tools.is_in()
+## @param value Value to look for
+## @param elem1... Elements to look among
+## @briefCheck if a value is in the given list of elements
+tools.is_in(){
     local what=$1
     local where i
     shift
@@ -22,7 +27,8 @@ tools.is_in()
 }
 
 
-## Remove the leading and trailing white spaces
+## @fn tools.trim()
+## @brief Remove the leading and trailing white spaces
 tools.trim(){
     local word
     shopt -q -s extglob
@@ -35,10 +41,11 @@ tools.trim(){
 }
 
 
-## Replace all the bad characters from the given word to fit a bash variable
-## name specification
-tools.sanitize()
-{
+## @fn tools.sanitize()
+## @param word... list of words to sanitize
+## @brief Replace all the bad characters from the given word to fit a bash
+## variable name specification
+tools.sanitize(){
     local word
     for word in "$@"; do
         word="$( tools.trim "${word}" )"
@@ -56,25 +63,31 @@ tools.sanitize()
 }
 
 
-## Get a simple md5 hash of the given string
-tools.hash()
-{
+## @fn tools.hash()
+## @param what Base string for the hash
+## @param length Max length for the hash, (default=10)
+## @brief Get a simple md5 hash of the given string
+tools.hash(){
     local what="${1?}"
     local length="${2:-10}"
     echo "$what" | md5sum | head -c$length
 }
 
 
-## log to stderr
-tools.log()
-{
+## @fn tools.log()
+## @brief logs the given strings to stderr
+## @param message... list of messages to log
+tools.log(){
     echo "$@" >&2
 }
 
 
-## print a review message with the format expeted by the hook dispatcher
-tools.review()
-{
+## @fn tools.review()
+## @brief print a review message with the format expeted by the hook dispatcher
+## @param cr Value for the Code Review flag
+## @param ver Value for the Verified flag
+## @param msg Message for the review comment
+tools.review(){
     local cr="${1}"
     local ver="${2}"
     local msg="${3}"
@@ -85,38 +98,30 @@ tools.review()
 
 
 ######
-# Usage:
-#   tools.match base_string match_string [match_string [...]]
-#
-#     base_string
-#       String to check for a match
-#
-#     match_string
-#       Tuple in the form '[!]regexp'
-#
-#       [!]regexp
-#           regular expresion to match the base string against, if preceded
-#            with '!' the expression will be negated
-#
-# Example:
-#
-#   tools.match 3.2.1 'master|3\.3.*' 'master|!3\.[21].*'
-#
-#   That will check that the string 3.2.1 matches:
-#       3\.3.*
-#   And does not match:
-#       3\.3\.0\..*
-#
-# Return TOOLS.MATCHES|0 if the base_string matches all of the match_string
-# passed, TOOLS.DOES_NOT_MATCH if it does not match because of a positive
-# match and TOOLS.SHOULD_NOT_MATCH if it was because of a negative match
-# (started with !)
-TOOLS_MATCHES=0
-TOOLS_DOES_NOT_MATCH=1
-TOOLS_SHOULD_NOT_MATCH=2
-
-tools.match()
-{
+## @fn tools.match()
+## @param base_string String to check for a match
+## @param match_string Tuple in the form '[!]regexp'
+## @code
+##       [!]regexp
+##           regular expresion to match the base string against, if preceded
+##            with '!' the expression will be negated
+##
+## Example:
+##
+##   tools.match 3.2.1 'master|3\.3.*' 'master|!3\.[21].*'
+##
+##   That will check that the string 3.2.1 matches:
+##       3\.3.*
+##   And does not match:
+##       3\.3\.0\..*
+## @endcode
+## @retval TOOLS_MATCHES|0 if the base_string matches all of the match_string
+## passed
+## @retval TOOLS_DOES_NOT_MATCH if it does not match because of a positive
+## match
+## @retval TOOLS_SHOULD_NOT_MATCH if it was because of a negative match
+## (started with !)
+tools.match(){
     local base_string="${1?}"
     local match_strings=("${@:2}")
     for regexp in "${match_strings[@]}"; do

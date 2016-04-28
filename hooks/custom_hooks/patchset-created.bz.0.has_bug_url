@@ -1,14 +1,12 @@
 #!/bin/bash
-###############################################################################
-# Checks that the patch has a valid Bug-Url in the git commit message, break
-# chain if not
-#
-# Config Options:
-#   BZ_USER - Bz username to use when logging in
-#   BZ_PASS - Bz password to use when logging in
-#   PRODUCTS - Array with the products allowed
-#   CONTACT - email/s for the contact, if not specified, will use
-#       dcaroest@redhat.com
+## @file
+## Checks that the patch has a valid Bug-Url in the git commit message, break
+## chain if not. Config Options:
+##   - BZ_USER - Bz username to use when logging in
+##   - BZ_PASS - Bz password to use when logging in
+##   - PRODUCTS - Array with the products allowed
+##   - CONTACT - email/s for the contact, if not specified, will use
+##       infra at ovirt dot org
 ###############################################################################
 
 source bz.sh
@@ -31,7 +29,7 @@ hdr="Check Bug-Url"
 bz.login "$BZ_USER" "$BZ_PASS" \
 || {
     message+="${message:+\n}* $hdr::ERROR, There was an error logging into bugzilla, "
-    message+="please contact the administrator ${CONTACT:-dcaroest@redhat.com}"
+    message+="please contact the administrator ${CONTACT:-infra@ovirt.org}"
     tools.review "" "" "$message"
     bz.clean
     exit 2

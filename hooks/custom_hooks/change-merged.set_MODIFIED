@@ -1,17 +1,15 @@
 #!/bin/bash
-###############################################################################
-# Moves the bugs in the commit message to MODIFIED, only if it's an upstream
-# bug (meaning that belongs to one of ovirt* components) and all the external
-# bugs have been closed
-#
-# Conf options:
-#   TRACKER_NAME -> Tracker name as seen on the gerrit external tracker list
-#   BZ_USER -> Username to use when logging in to bugzilla
-#   BZ_PASS -> Password to use when logging into bugzilla
-#   CHECK_TARGET_RELEASE -> Pairs of 'branch|regexp' to match agains the bug
-#       target release, if regexp starts with '!' it will be negated
-#   CONTACT -> email to contact in case of failure
-#
+## @file
+## Moves the bugs in the commit message to MODIFIED, only if it's an upstream
+## bug (meaning that belongs to one of ovirt* components) and all the external
+## bugs have been closed
+## Conf options:
+##   - TRACKER_NAME -> Tracker name as seen on the gerrit external tracker list
+##   - BZ_USER -> Username to use when logging in to bugzilla
+##   - BZ_PASS -> Password to use when logging into bugzilla
+##   - CHECK_TARGET_RELEASE -> Pairs of 'branch|regexp' to match agains the bug
+##       target release, if regexp starts with '!' it will be negated
+##   - CONTACT -> email to contact in case of failure
 source bz.sh
 source tools.sh
 source gerrit.sh

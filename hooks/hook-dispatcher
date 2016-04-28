@@ -2,18 +2,33 @@
 """
 This dispatcher handles the hook execution
 
-Allowed tags:
+Allowed tags in gerrit commit message:
+======================================
 
 Ignore-Hooks
------------
+--------------
+Do not run the given hooks::
+
     Ignore-Hooks: hook1, hook2, ...
-    Do not run the given hooks
 
 Run-Only-Hooks
------------
-    Run-Only-Hooks: hook1, hook2 ...
-    Run only the given hooks if they exist
+---------------
+Run only the given hooks if they exist::
 
+    Run-Only-Hooks: hook1, hook2 ...
+
+Allowed tags in gerrit comment:
+================================
+
+Rerun-Hooks
+------------
+Run again the given hooks (patchset-created event hooks only)::
+
+    Rerun-Hooks: hook1, hook2 ...
+    Rerun-Hooks: all
+
+API
+=====
 """
 
 import os
@@ -97,15 +112,23 @@ def rerun(to_rerun_hooks, current_hooks, args):
     return to_rerun
 
 
-# Tags to look for specified like this:
-#
-# {
-#     tag_name: (
-#         Regexp_to_match,
-#         function_to_run
-#     )
-# }
-# Commit message tags
+#: Gerrit comment tags
+#: Tags to look for should be specified like this::
+#:
+#:     {
+#:         tag_name: (
+#:             Regexp_to_match,
+#:             function_to_run
+#:         )
+#:     }
+#:
+COMMENT_TAGS = {
+    'rerun': (
+        'Rerun-Hooks: ',
+        rerun
+    ),
+}
+#: Commit message tags
 COMMIT_TAGS = {
     'ignore': (
         'Ignore-Hooks: ',
@@ -114,13 +137,6 @@ COMMIT_TAGS = {
     'run_only': (
         'Run-Only-Hooks: ',
         run_only
-    ),
-}
-# Gerrit comment tags
-COMMENT_TAGS = {
-    'rerun': (
-        'Rerun-Hooks: ',
-        rerun
     ),
 }
 
@@ -192,7 +208,7 @@ def flatten(array, elems):
 
     :param array: Command line array as ['ls', '-l', '/tmp']
     :param elems: Command line options as parsed by arpargse, like
-                  [('author', 'dcaro'), ('email', 'dcaroest@redhat.com')]
+                  [('author', 'dcaro'), ('email', 'dcaroest at redhat.com')]
     """
     option, value = elems
     if value:
@@ -201,7 +217,7 @@ def flatten(array, elems):
 
 
 def get_hooks(path, hook_type):
-    """"
+    """
     Get all the hooks that match the given type in the given path
 
     :param path: Path to look the hooks in
@@ -236,55 +252,46 @@ def get_chains(hooks):
 
 def parse_stdout(stdout):
     """
-    The expected output format is:
+    The expected output format is::
 
-    ############
-    code_review_value
-    verified_value
-    multiline_msg
-    ############
+        code_review_value
+        verified_value
+        multiline_msg
 
     Where code_review_value and verified_value can be an empty line if it's
     an abstention (no modifying the value any of the previous or next hooks
     in the chain set)
     If any of the lines is missing then it will assumed an abstention.
 
-        2 lines -> No message
-        1 line  -> No message and no verified value
-        0 lines -> Not changing anything
+    * 2 lines -> No message
+    * 1 line  -> No message and no verified value
+    * 0 lines -> Not changing anything
 
     And if any of the two first lines fails when converting to integer, it
     will assume that's the start of the message and count the non-specified
     votes as abstentions
 
-    Skipping hooks comment - return codes:
+    Examples::
 
-    If rc == 3 the execution of the hook will not be added to the comments, on
-    any other case, it will add a comment with the message provided
-
-
-    Examples:
-    ################
-    message starts here
-    -1
-    message continues
-    ################
+        message starts here
+        -1
+        message continues
 
     ^^^ this will be parsed as only message and two abstentions
 
-    ################
-    -1
-    message starts here
-    0
-    message continues here
-    ################
+    ::
+
+        -1
+        message starts here
+        0
+        message continues here
 
     ^^^ this will count as CR:-1, and the rest message
 
-    ################
-    0
-    message
-    ################
+    ::
+
+        0
+        message
 
     ^^^ This will count as CR:0 (will level any positive review) and the rest
     message
@@ -317,11 +324,17 @@ def parse_stdout(stdout):
 
 
 def run_hooks(path, hooks, chain='NONE'):
-    """"
+    """
     Run the given hooks form the given path
+
+    If any of the hooks returns with 1 or 2, the execution is stopped, if
+    returns with 3, only a warning message is logged, and the execution will
+    continue.
 
     :param path: Path where the hooks are located
     :param hooks: hook names to run
+    :param chain: Name of the chain the hooks belong to
+    :returns str: Log string with the combined result of all the executed hooks
     """
     hooks.sort()
     params = sys.argv[1:]
@@ -338,8 +351,8 @@ def run_hooks(path, hooks, chain='NONE'):
         )
         output, error = pipe.communicate()
         logging.debug(
-            "Raw output:\n################\n%s\n###################\n"
-            % output
+            "Raw output:\n################\n%s\n###################\n",
+            output,
         )
         if pipe.returncode == 3:
             error and logging.warn(logstr + '\n' + error)
@@ -367,8 +380,12 @@ def run_hooks(path, hooks, chain='NONE'):
 
 
 def run_chains(path, hooks):
-    """"
-    Run the given hooks form the given path
+    """
+    Builds the chains from the given hooks and runs them.
+
+    If a hook on a chain returns with 1 or 2, it will break that chain and no
+    futher hooks for that chain will be executed, continuing with the next
+    chain
 
     :param path: Path where the hooks are located
     :param hooks: hook names to run

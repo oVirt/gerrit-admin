@@ -1,11 +1,9 @@
 #!/bin/bash
-###############################################################################
-# Moves the bugs in the commit message to POST state
-#
-# Configuration variable
-#   CHECK_TARGET_RELEASE -> Pairs of 'branch|regexp' to match agains the bug
-#       target release, if regexp starts with '!' it will be negated
-#   US_PRODUCT - Name of the downstream product
+## @file
+## Moves the bugs in the commit message to POST state. Configuration variables:
+##   - CHECK_TARGET_RELEASE -> Pairs of 'branch|regexp' to match agains the bug
+##       target release, if regexp starts with '!' it will be negated
+##   - US_PRODUCT - Name of the downstream product
 ###############################################################################
 source bz.sh
 source gerrit.sh

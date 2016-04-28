@@ -1,13 +1,15 @@
 #!/bin/bash
-###########
-## helpful functions to be used on the gerrit hook scripts
+## @file gerrit.sh
+## Helpful functions to manage gerrit related actions
 source conf.sh
 
-## Get the bug info
-## NOTE: it is cached for faster access
-gerrit.get_patch()
-{
-    patch_id="${1?}"
+## @fn gerrit.get_patch()
+## @brief Print the bug info
+## @note it is cached for faster access
+## @param patch_id Patch id to retrieve info, as in 1234 (don't confuse with
+## the change id)
+gerrit.get_patch(){
+    declare patch_id="${1?}"
     local patch_cache="$(conf.t_get gerrit_${patch_id})"
     if [[ "$patch_cache" != "" ]] && [[ -f "$patch_cache" ]]; then
         cat "$patch_cache"
@@ -20,10 +22,13 @@ gerrit.get_patch()
     fi
 }
 
-## Check if the patch has the Related-To tag
-gerrit.is_related()
-{
-    local commit=${1:-HEAD}
+## @fn gerrit.is_related()
+## @brief Check if the patch has the Related-To tag
+## @param commit Refspec to check
+## @retval 0 if it did not have it
+## @retval 1 otherwise
+gerrit.is_related(){
+    declare commit=${1:-HEAD}
     local line
     local related_regexp='^[^#]*Related-To:(.*)$'
     pushd "${GIT_DIR?}" &>/dev/null
@@ -38,11 +43,16 @@ gerrit.is_related()
 }
 
 
-## Parse all the aprameters as env variables:
-## $0 --param1 val1 param2 --param-3 val3
-##   => param1="val1" && param_3="val3" && [[ $1 == "param2" ]]
-gerrit.parse_params()
-{
+## @fn gerrit.parse_params()
+## @brief Parse all the parameters as env variables, leave the rest as
+## positional args
+## @code
+##   gerrit.parse_params --param1 val1 param2 --param-3 val3
+##       => [[ param1 == "val1" ]] \
+##          && [[ param_3 == "val3" ]] \
+##          && [[ "$1" == "param2" ]]
+## @endcode
+gerrit.parse_params(){
     source tools.sh
     while [[ "$1" != "" && "$2" != "" ]]; do
         if [[ "${1:0:2}" != '--' ]]; then
@@ -55,15 +65,19 @@ gerrit.parse_params()
 }
 
 
-## Write a review, it will use the env commit and project vars, as set by
-##  parse_params
-gerrit.review()
-{
-    local result=${1?}
+## @fn gerrit.review()
+## @brief Write a review, it will use the env commit and project vars, as set
+## by parse_params
+## @param result Value for the verified flag (1, 0, -1)
+## @param message Message for the comment
+## @param project Gerrit project that owns the commit
+## @param commit Refspec for the commit of the patch to write a review for
+gerrit.review(){
+    declare result=${1?}
 #    local message="$( echo "${2?}" | fold -w 80 -s )"
-    local message="${2?}"
-    local project=${3:-$project}
-    local commit=${4:-$commit}
+    declare message="${2?}"
+    declare project=${3:-$project}
+    declare commit=${4:-$commit}
     local footer="
  help:$HELP_URL"
     echo "Message:\n$message"
@@ -75,25 +89,30 @@ gerrit.review()
 }
 
 
-## Get the status of the given patch
-gerrit.status()
-{
+## @fn gerrit.status()
+## @brief Print the status of the given patch
+## @param id Patch id to get the status for
+gerrit.status(){
     local id=${1?}
     gerrit.get_patch "$id" \
     | grep -Po "(?<=^  status: )\w*"
 }
 
-## Check if a patch is open
-gerrit.is_open()
-{
+## @fn gerrit.is_open()
+## @brief Check if a patch is open
+## @param id Patch id to check
+## @retval 0 if the patch is open
+## @retval 1 otherwise
+gerrit.is_open(){
     local id=${1?}
     gerrit.get_patch "$id" \
     | grep -Pq "^  open: true"
 }
 
-
-## Clean up all temporary files for the current run
-gerrit.clean()
-{
+## @fn gerrit.clean()
+## @brief Clean up all the temporary files for the current run
+## @param nothing No parameters needed
+gerrit.clean(){
     rm -f /tmp/gerrit_cache.$PPID.*
 }
+

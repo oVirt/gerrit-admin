@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+"""
+update_tracker
+---------------
+
+Updates bugzilla with the updated info from the patch
+"""
 import os
 import logging
 import sys

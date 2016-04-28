@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+"""
+comment-added.propagate_review_values
+--------------------------------------
+When a new comment from jenkins is added, updates the current value of the
+reviews propagating any CI flags
+"""
 import os
 import logging
 import sys
