@@ -5,6 +5,9 @@
 TOOLS_MATCHES=0
 TOOLS_DOES_NOT_MATCH=1
 TOOLS_SHOULD_NOT_MATCH=2
+TOOLS_VERCMP_EQUAL=0
+TOOLS_VERCMP_GT=1
+TOOLS_VERCMP_LT=2
 
 
 ## @fn tools.is_in()
@@ -138,4 +141,43 @@ tools.match(){
         fi
     done
     return $TOOLS_MATCHES
+}
+
+
+######
+## @fn tools.ver_cmp()
+## @param version1 String with the first version to compare (must be in the
+## form X.Y(.Z)? where X, Y and Z are numbers)
+## @param version2 String with the second version to compare (must be in the
+## form X.Y(.Z)? where X, Y and Z are numbers)
+##
+## Example:
+##
+##   tools.ver_cmp 3.2.1  3.3
+##
+## @endcode
+## @retval TOOLS_VERCMP_EQUAL if the versions are the same
+## @retval TOOLS_VERCMP_GT if version1 > version2
+## @retval TOOLS_VERCMP_LT if version1 < version2
+tools.ver_cmp(){
+    declare version1="${1?}"
+    declare version2="${2?}"
+    version1=(${version1//\./ })
+    version2=(${version2//\./ })
+
+    for ((i=0; i<"${#version1[@]}"; i++)); do
+        if [[ "${version1[$i]}" -gt "${version2[$i]}" ]]; then
+            return $TOOLS_VERCMP_GT
+        elif [[ "${version1[$i]}" -lt "${version2[$i]}" ]]; then
+            return $TOOLS_VERCMP_LT
+        fi
+    done
+
+    if [[ "${#version1[@]}" -gt "${#version2[@]}" ]]; then
+        return $TOOLS_VERCMP_GT
+    elif [[ "${#version1[@]}" -lt "${#version2[@]}" ]]; then
+        return $TOOLS_VERCMP_LT
+    fi
+
+    return $TOOLS_VERCMP_EQUAL
 }

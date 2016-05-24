@@ -116,3 +116,21 @@ gerrit.clean(){
     rm -f /tmp/gerrit_cache.$PPID.*
 }
 
+
+## @fn gerrit.get_branches()
+## @brief Print the list of branches for the current project
+## @param pattern If passed, will filter out branches by that pattern
+## (shell-like)
+gerrit.get_branches(){
+    declare pattern="${1}"
+    pushd "${GIT_DIR?}" &>/dev/null
+    declare branch
+    while read branch; do
+        branch="${branch#* }"
+        branch="${branch#  }"
+        echo "${branch}"
+    done < <( git branch --list ${pattern:+$pattern} )
+    popd &>/dev/null
+    return 0
+}
+

@@ -37,7 +37,7 @@ for bug_id in "${bug_ids[@]}"; do
     || {
         message+="${message:+\n}$msg_hdr::"
         message+="Error logging to bugzilla, please contact "
-        message+="${CONTACT:-dcaroest@redhat.com}"
+        message+="${CONTACT:-infra@ovirt.org}"
         tools.review "" "" "$message"
         bz.clean
         gerrit.clean
@@ -70,30 +70,65 @@ for bug_id in "${bug_ids[@]}"; do
         message+="closed, check ${open_patches}"
         continue
     fi
-    ## not needed since 2015-11-12
-    ## Check the target_release
-    tools.log "${hdr}Checking target release"
-    ## If patch was to master, don't update anyhow
-#    res="$(bz.check_target_release \
-#        "$bug_id" \
-#        "$branch" \
-#        "${CHECK_TARGET_RELEASE[@]}" \
-#        "master|!.*")"
-#    if [[ $? -ne 0 ]]; then
-#        tools.log "${hdr}Target release check failed, skipping bug"
-#        message+="${message:+\n}* Check TR::#$bug_id::ERROR, $res"
-#        continue
-#    else
-#        message+="${message:+\n}* Check TR::#$bug_id::OK"
-#    fi
+    ## Check if the target milestone matches the branch
+    target_milestone="$(bz.get_target_milestone "$bug_id")"
+    cur_branch="${branch?No --branch parameter was passed}"
+    ### If the branch we are in is not in the form '.*-X.Y.Z' move it's bugs as
+    ### usual
+    digits_regex='[[:digit:]]+\.[[:digit:]]+(\.[[:digit:]]+)?$'
+    if [[ "$cur_branch" =~ $digits_regex ]]; then
+        branch_suffix="$BASH_REMATCH"
+        ### on non-stable milestones (.*-X.Y.Z-something), skip
+        if ! [[ $target_milestone =~ $digits_regex ]]; then
+            tools.log "::bug $bug_id::Skipping bug with no stable milestone " \
+                "$target_milestone"
+            message+="${message:+\n}$msg_hdr::SKIPPED${res:+, $res}"
+            continue
+        fi
+        milestone_suffix="$BASH_REMATCH"
+        tools.ver_cmp "$branch_suffix" "$milestone_suffix"
+        case $? in
+            $TOOLS_VERCMP_EQUAL)
+                # keep going and allow modifying the status
+                ;;
+            $TOOLS_VERCMP_GT)
+                # keep going and allow modifying the status
+                ;;
+            $TOOLS_VERCMP_LT)
+                matching_branches=(
+                    $(gerrit.get_branches "*-$milestone_suffix")
+                )
+                if [[ "$matching_branches" =~ $digits_regex ]]; then
+                    tools.log "::bug $bug_id::Skipping bug with wrong target" \
+                        "milestone, there's a newer branch " \
+                        "($matching_branches) that matches the milestone " \
+                        "$target_milestone"
+                    message+="${message:+\n}$msg_hdr::SKIPPED${res:+, $res}"
+                    continue
+                fi
+                tools.log "::bug $bug_id::Changing bug with branch version " \
+                    "lower than target milestone because there's no branch " \
+                    "($matching_branches) that matches the milestone " \
+                    "$target_milestone"
+                # if there is no matching branch, keep going and allow
+                # modifying the status
+                ;;
+            *)
+                message+="${message:+\n}$msg_hdr::"
+                message+="Error comparing milestone and branch, please "
+                message+="contact ${CONTACT:-infra@ovirt.org}"
+                continue
+                ;;
+        esac
+    fi
     ## Modify the bug status
     if res=$(bz.update_status "$bug_id" "MODIFIED" "$commit"); then
-        tools.log "::bug $bug_id::Status updated on bug #$bug_id for gerrit "
+        tools.log "::bug $bug_id::Status updated on bug #$bug_id for gerrit " \
             "id #${change_url//*\/} to MODIFIED${res:+\n    $res}"
         message+="${message:+\n}$msg_hdr::OK${res:+, $res}"
     else
-        tools.log "::bug $bug_id::Failed to update the status of bug #$bug_id "
-            "for gerrit id #${current_patch_id} to MODIFIED\n  $res"
+        tools.log "::bug $bug_id::Failed to update the status of bug " \
+            "#$bug_id for gerrit id #${current_patch_id} to MODIFIED\n  $res"
         message+="${message:+\n}$msg_hdr::FAILED, $res"
     fi
     conf.t_put message "$message"
