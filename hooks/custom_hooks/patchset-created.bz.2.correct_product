@@ -55,7 +55,9 @@ for bug_id in ${bug_ids[@]}; do
         if [[ "$classification" != "$CLASSIFICATION" ]]; then
             message+="${message:+\n}* $hdr::#$bug_id::SKIPPED, "
             tools.log "$bug_id::ERROR" \
-                "Wrong product $prod and wrong classification $classification"
+                "Wrong product $prod and wrong classification $classification\n" \
+                " Allowed prods: ${PRODUCTS[@]}\n" \
+                " Allowed classification: ${CLASSIFICATION}\n"
             message+="Wrong product $prod"
             message+=" and classification $classification not $CLASSIFICATION"
         else

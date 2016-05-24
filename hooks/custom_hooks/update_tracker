@@ -38,7 +38,7 @@ if __name__ == '__main__':
     if not_defined_confs:
         logging.error("Missing configuration values %s"
                       % ', '.join(not_defined_confs))
-        print "* Update tracker::ERROR, misconfigured, contact admin"
+        print "* Update tracker: ERROR, misconfigured, contact admin"
         sys.exit(1)
     logging.debug("STARTING::PARAMS %s" % sys.argv)
     bgz = Bugzilla(
@@ -62,10 +62,10 @@ if __name__ == '__main__':
             )
                 #ensure_product=config['PRODUCT'],
         except WrongProduct, exc:
-            print "* Update tracker::#%s::IGNORED, wrong product %s" \
+            print "* #%s::Update tracker: IGNORED, wrong product %s" \
                 % (bug_id, exc.message)
         else:
-            print "* Update tracker::#%s::OK" % bug_id
+            print "* #%s::Update tracker: OK" % bug_id
     if not bugs:
-        print "* Update tracker::IGNORE, no Bug-Url found"
+        print "* Update tracker: IGNORE, no Bug-Url found"
     logging.debug("FINISHED")
