@@ -1,0 +1,12 @@
+config file per git project on gerrit.
+Currently this is just a backup and isn't
+deployed to the gerrit server.
+
+In order to update the hooks, you need to copy
+the updated config file to the git repo on gerrit server:
+
+for e.g, ovirt-engine:
+/home/gerrit2/review_site/git/ovirt-engine.git/hooks/config
+
+each HOOK is named "project.config" - you will need to rename it
+to 'config' when you copy it under the git repo in gerrit
