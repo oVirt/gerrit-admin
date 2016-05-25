@@ -1,0 +1,22 @@
+domains:
+  gerrit_server:
+    memory: 4096
+    nics:
+      - net: local
+    disks:
+      - template_name: el7-base
+        type: template
+        name: root
+        dev: vda
+        format: qcow2
+    metadata:
+      deploy-scripts:
+        - $LAGO_INITFILE_PATH/scripts/deploy_gerrit_server.sh
+
+nets:
+  local:
+    type: nat
+    dhcp:
+      start: 100
+      end: 254
+    management: true
