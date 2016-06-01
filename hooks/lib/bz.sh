@@ -140,8 +140,8 @@ bz.get_bug_id(){
 ##      full url to the bugzilla server
 ## @endcode
 bz.login(){
-    declare bz_user="${1?No user passed}"
-    declare bz_password="${2?No password passed}"
+    declare bz_user
+    declare bz_password
     local server_url="$(conf.get 'bugzilla_server' 'https://bugzilla.redhat.com')"
     local OPTIND bug_id json_bug
     while getopts "s:b:" option; do
@@ -156,6 +156,8 @@ bz.login(){
         esac
     done
     shift $((OPTIND - 1))
+    declare bz_user="${1?No user passed}"
+    declare bz_password="${2?No password passed}"
     [[ "$bz_user" == "" ]] && { echo "No use supplied"; return 1; }
     [[ "$bz_password" == "" ]] && { echo "No password supplied"; return 1; }
     ## Login for us is just trying to do a request and not getting error
