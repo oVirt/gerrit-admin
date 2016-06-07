@@ -76,16 +76,25 @@ for bug_id in "${bug_ids[@]}"; do
     ### If the branch we are in is not in the form '.*-X.Y.Z' move it's bugs as
     ### usual
     digits_regex='[[:digit:]]+\.[[:digit:]]+(\.[[:digit:]]+)?$'
+    # Get the branch suffix
+    branch_suffix=''
     if [[ "$cur_branch" =~ $digits_regex ]]; then
         branch_suffix="$BASH_REMATCH"
-        ### on non-stable milestones (.*-X.Y.Z-something), skip
-        if ! [[ $target_milestone =~ $digits_regex ]]; then
-            tools.log "::bug $bug_id::Skipping bug with no stable milestone " \
-                "$target_milestone"
-            message+="${message:+\n}$msg_hdr::SKIPPED${res:+, $res}"
-            continue
-        fi
+    else
+        tools.log "${hdr}Unknown branch version $cur_branch"
+    fi
+    tools.log "::bug $bug_id:: Got branch suffix ${branch_suffix:-None}"
+    # Get the milestone suffix
+    with_milestone_regex='([[:digit:]]+\.[[:digit:]]+)(\.[[:digit:]]+)?-[^-]+$'
+    milestone_suffix=''
+    if [[ "$target_milestone" =~ $digits_regex ]]; then
         milestone_suffix="$BASH_REMATCH"
+    elif [[ "$target_milestone" =~ $with_milestone_regex ]]; then
+        milestone_suffix="${BASH_REMATCH[1]}"
+    else
+        tools.log "${hdr}Unknown milestone $target_milestone"
+    fi
+    if [[ "$branch_suffix" != "" ]] && [[ "$milestone_suffix" != "" ]]; then
         tools.ver_cmp "$branch_suffix" "$milestone_suffix"
         case $? in
             $TOOLS_VERCMP_EQUAL)
