@@ -70,20 +70,28 @@ for bug_id in "${bug_ids[@]}"; do
         message+="closed, check ${open_patches}"
         continue
     fi
+
     ## Check if the target milestone matches the branch
     target_milestone="$(bz.get_target_milestone "$bug_id")"
     cur_branch="${branch?No --branch parameter was passed}"
+
     ### If the branch we are in is not in the form '.*-X.Y.Z' move it's bugs as
     ### usual
+
     digits_regex='[[:digit:]]+\.[[:digit:]]+(\.[[:digit:]]+)?$'
+
     # Get the branch suffix
     branch_suffix=''
     if [[ "$cur_branch" =~ $digits_regex ]]; then
         branch_suffix="$BASH_REMATCH"
     else
-        tools.log "${hdr}Unknown branch version $cur_branch"
+        tools.log "${hdr}branch: $cur_branch doesn't match $digits_regex"
+	message+="${message:+\n}${msg_hdr}IGNORE,"
+	message+=" skipping for branch '${cur_branch}'"
+	continue
     fi
     tools.log "::bug $bug_id:: Got branch suffix ${branch_suffix:-None}"
+
     # Get the milestone suffix
     with_milestone_regex='([[:digit:]]+\.[[:digit:]]+)(\.[[:digit:]]+)?-[^-]+$'
     milestone_suffix=''
@@ -94,7 +102,9 @@ for bug_id in "${bug_ids[@]}"; do
     else
         tools.log "${hdr}Unknown milestone $target_milestone"
     fi
-    if [[ "$branch_suffix" != "" ]] && [[ "$milestone_suffix" != "" ]]; then
+
+    # including also 'master' branch, since its branch suffix will be ""
+    if [[ "$milestone_suffix" != "" ]]; then
         tools.ver_cmp "$branch_suffix" "$milestone_suffix"
         case $? in
             $TOOLS_VERCMP_EQUAL)
@@ -104,14 +114,16 @@ for bug_id in "${bug_ids[@]}"; do
                 # keep going and allow modifying the status
                 ;;
             $TOOLS_VERCMP_LT)
+                # check if the patch is on master branch or if there are newer branches
+                # like x.y.z to consider (i.e skip the move to MODIFIED)
                 matching_branches=(
                     $(gerrit.get_branches "*-$milestone_suffix")
                 )
                 if [[ "$matching_branches" =~ $digits_regex ]]; then
-                    tools.log "::bug $bug_id::Skipping bug with wrong target" \
-                        "milestone, there's a newer branch " \
-                        "($matching_branches) that matches the milestone " \
-                        "$target_milestone"
+                    tools.log "::bug $bug_id::Skipping detected branches" \
+                        "($matching_branches) that match target milestone" \
+                        "$target_milestone, bug should move to MODIFIED" \
+                        "only when merged on the latest branch for the target milestone"
                     message+="${message:+\n}$msg_hdr::SKIPPED${res:+, $res}"
                     continue
                 fi
