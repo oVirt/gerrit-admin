@@ -60,7 +60,6 @@ if __name__ == '__main__':
                 status=change['status'],
                 branch=args.branch,
             )
-                #ensure_product=config['PRODUCT'],
         except WrongProduct, exc:
             print "* #%s::Update tracker: IGNORED, wrong product %s" \
                 % (bug_id, exc.message)

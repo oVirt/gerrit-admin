@@ -32,8 +32,10 @@ def get_unmerged_newer_branches(gerrit, change_id, cur_branch, project,
             continue
         logging.debug("Checking patch %s" % str(patch))
         if patch['open'] and patch['branch'] in newer_branches:
-            logging.error('patch with id {id} still open for branch '
-                            '{branch}'.format(**patch))
+            logging.error(
+                'patch with id {id} still open for branch {branch}'.format(
+                    **patch)
+            )
             branches_w_open_patch.append(patch['branch'])
         if patch['branch'] not in branches_with_patch:
             branches_with_patch.append(patch['branch'])
@@ -41,7 +43,7 @@ def get_unmerged_newer_branches(gerrit, change_id, cur_branch, project,
         - set(branches_with_patch) \
         - set(branches_w_open_patch)
     if not branches_wo_patch:
-       return (branches_w_open_patch, branches_wo_patch)
+        return branches_w_open_patch, branches_wo_patch
     # if there are any branches without the patch on gerrit, check git history
     branches_to_check = branches_wo_patch
     branches_wo_patch = []
@@ -62,16 +64,22 @@ def give_warning(gerrit, commit, project, open_branches, no_patch_branches):
     long_msg = []
     if open_branches:
         long_msg.append(
-            "WARNING: This patch was not merged yet on all the newer branches"
-            "\n  Open on: %s" % ', '.join(open_branches))
-        msg.append("* Check merged to previous::WARN, Still open on branches %s"
-                   % ', '.join(open_branches))
+            "WARNING: This patch was not merged yet on all the newer "
+            "branches\n  Open on: %s" % ', '.join(open_branches)
+        )
+        msg.append(
+            "* Check merged to previous::WARN, Still open on branches %s"
+            % ', '.join(open_branches)
+        )
     if no_patch_branches:
         long_msg.append(
-            "WARNING: This patch does not exist yet on all the newer branches"
-            "\n  Missing on : %s" % ', '.join(no_patch_branches))
-        msg.append("* Check merged to previous::WARN, Still missing on branches %s"
-                   % ', '.join(no_patch_branches))
+            "WARNING: This patch does not exist yet on all the newer "
+            "branches\n  Missing on : %s" % ', '.join(no_patch_branches)
+        )
+        msg.append(
+            "* Check merged to previous::WARN, Still missing on branches %s"
+            % ', '.join(no_patch_branches)
+        )
     print '-1\n0\n' + '\n'.join(msg)
     logging.error('\n'.join(long_msg))
 
@@ -91,16 +99,21 @@ def main():
     logging.debug("STARTING::PARAMS %s" % sys.argv)
     stable_branches = config.get('STABLE_BRANCHES', None)
     if stable_branches is None:
-        logging.info('No stable branches configured, set STABLE_BRANCHES in '
-                     'tstream=sys.stderr,he config to the correct value')
-        print "* Check merged to previous::IGNORE, No stable branches configured."
+        logging.info(
+            "No stable branches configured, set STABLE_BRANCHES in "
+            "tstream=sys.stderr,he config to the correct value"
+        )
+        print "* Check merged to previous::IGNORE, \
+        No stable branches configured."
         return
     stable_branches = stable_branches.split(' ')
     if args.branch not in stable_branches:
-        logging.info('Not in one of the stable branches %s, but in %s'
-                     % (stable_branches, args.branch))
-        print "* Check merged to previous::IGNORE, Not in stable branch (%s)" \
-            % stable_branches
+        logging.info(
+            "Not in one of the stable branches %s, but in %s"
+            % (stable_branches, args.branch)
+        )
+        print "* Check merged to previous::IGNORE, \
+        Not in stable branch (%s)" % stable_branches
         return
     gerrit = Gerrit(config['GERRIT_SRV'])
     repo_dir = os.environ.get('GIT_DIR')
@@ -111,10 +124,13 @@ def main():
         args.project,
         repo_dir)
     if unmerged_branches or no_patch_branches:
-        give_warning(gerrit, args.commit, args.project, unmerged_branches,
-                     no_patch_branches)
+        give_warning(
+            gerrit, args.commit, args.project, unmerged_branches,
+            no_patch_branches
+        )
     else:
-        print "* Check merged to previous::OK, change not open on any previous branch"
+        print "* Check merged to previous::OK, \
+        change not open on any previous branch"
     logging.info("FINISHED")
 
 
