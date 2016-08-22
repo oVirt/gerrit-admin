@@ -83,6 +83,11 @@ class Bugzilla(object):
                 'bug_ids': [bug_id],
                 'external_bugs': [external],
             }))
+            orig_external = self.get_external(
+                bug_id,
+                external_bug_id,
+                ensure_product=ensure_product,
+            )
         else:
             self.ExternalBugs.update_external_bug(self.wrap(external))
 

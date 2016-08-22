@@ -112,23 +112,24 @@ def rerun(to_rerun_hooks, current_hooks, args):
     return to_rerun
 
 
-#: Gerrit comment tags
-#: Tags to look for should be specified like this::
-#:
-#:     {
-#:         tag_name: (
-#:             Regexp_to_match,
-#:             function_to_run
-#:         )
-#:     }
-#:
+# Gerrit comment tags
+# Tags to look for should be specified like this:
+#
+# {
+#     tag_name: (
+#         Regexp_to_match,
+#         function_to_run
+#     )
+# }
+
 COMMENT_TAGS = {
     'rerun': (
         'Rerun-Hooks: ',
         rerun
     ),
 }
-#: Commit message tags
+
+# Commit message tags
 COMMIT_TAGS = {
     'ignore': (
         'Ignore-Hooks: ',
@@ -208,7 +209,7 @@ def flatten(array, elems):
 
     :param array: Command line array as ['ls', '-l', '/tmp']
     :param elems: Command line options as parsed by arpargse, like
-                  [('author', 'dcaro'), ('email', 'dcaroest at redhat.com')]
+                  [('author', 'dcaro'), ('email', 'dcaroest@redhat.com')]
     """
     option, value = elems
     if value:
@@ -252,11 +253,11 @@ def get_chains(hooks):
 
 def parse_stdout(stdout):
     """
-    The expected output format is::
+    The expected output format is:
 
-        code_review_value
-        verified_value
-        multiline_msg
+    code_review_value
+    verified_value
+    multiline_msg
 
     Where code_review_value and verified_value can be an empty line if it's
     an abstention (no modifying the value any of the previous or next hooks
@@ -271,27 +272,26 @@ def parse_stdout(stdout):
     will assume that's the start of the message and count the non-specified
     votes as abstentions
 
-    Examples::
+    Examples:
+    Skipping hooks comment - return codes:
+    If rc == 3 the execution of the hook will not be added to the comments, on
+    any other case, it will add a comment with the message provided
 
-        message starts here
-        -1
-        message continues
+    message starts here
+    -1
+    message continues
 
     ^^^ this will be parsed as only message and two abstentions
 
-    ::
-
-        -1
-        message starts here
-        0
-        message continues here
+    -1
+    message starts here
+    0
+    message continues here
 
     ^^^ this will count as CR:-1, and the rest message
 
-    ::
-
-        0
-        message
+    0
+    message
 
     ^^^ This will count as CR:0 (will level any positive review) and the rest
     message
@@ -351,8 +351,8 @@ def run_hooks(path, hooks, chain='NONE'):
         )
         output, error = pipe.communicate()
         logging.debug(
-            "Raw output:\n################\n%s\n###################\n",
-            output,
+            "Raw output:\n################\n%s\n###################\n"
+            % output
         )
         if pipe.returncode == 3:
             error and logging.warn(logstr + '\n' + error)
