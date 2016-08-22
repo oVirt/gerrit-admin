@@ -86,9 +86,9 @@ for bug_id in "${bug_ids[@]}"; do
         branch_suffix="$BASH_REMATCH"
     else
         tools.log "${hdr}branch: $cur_branch doesn't match $digits_regex"
-	message+="${message:+\n}${msg_hdr}IGNORE,"
-	message+=" skipping for branch '${cur_branch}'"
-	continue
+        message+="${message:+\n}${msg_hdr}IGNORE,"
+        message+=" skipping for branch '${cur_branch}'"
+        continue
     fi
     tools.log "::bug $bug_id:: Got branch suffix ${branch_suffix:-None}"
 
@@ -96,7 +96,7 @@ for bug_id in "${bug_ids[@]}"; do
     with_milestone_regex='([[:digit:]]+\.[[:digit:]]+)(\.[[:digit:]]+)?-[^-]+$'
     milestone_suffix=''
     if [[ "$target_milestone" =~ $digits_regex ]]; then
-        milestone_suffix="$BASH_REMATCH"
+	milestone_suffix="$BASH_REMATCH"
     elif [[ "$target_milestone" =~ $with_milestone_regex ]]; then
         milestone_suffix="${BASH_REMATCH[1]}"
     else
