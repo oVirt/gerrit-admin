@@ -73,87 +73,85 @@ for bug_id in "${bug_ids[@]}"; do
 
     ## Check if the target milestone matches the branch
     target_milestone="$(bz.get_target_milestone "$bug_id")"
-    cur_branch="${branch?No --branch parameter was passed}"
+    current_branch="${branch?No --branch parameter was passed}"
 
-    ### If the branch we are in is not in the form '.*-X.Y.Z' move it's bugs as
-    ### usual
-
-    digits_regex='[[:digit:]]+\.[[:digit:]]+(\.[[:digit:]]+)?$'
+    ### If the branch we are in is not in the form '.*-X.Y.Z'
+    ### don't move it's bugs automatically
+    branch_regex='[[:digit:]]+\.[[:digit:]]+(\.[[:digit:]]+)?$'
 
     # Get the branch suffix
     branch_suffix=''
-    if [[ "$cur_branch" =~ $digits_regex ]]; then
+    if [[ "$current_branch" =~ $branch_regex ]]; then
         branch_suffix="$BASH_REMATCH"
     else
-        tools.log "${hdr}branch: $cur_branch doesn't match $digits_regex"
-        message+="${message:+\n}${msg_hdr}IGNORE,"
-        message+=" skipping for branch '${cur_branch}'"
+        tools.log "${hdr}branch: '${current_branch}' doesn't match" \
+            "'${branch_regex}'"
+        message+="${message:+\n}${msg_hdr}IGNORE, "
+        message+="skipping for branch '${current_branch}'"
         continue
     fi
     tools.log "::bug $bug_id:: Got branch suffix ${branch_suffix:-None}"
 
     # Get the milestone suffix
-    with_milestone_regex='([[:digit:]]+\.[[:digit:]]+)(\.[[:digit:]]+)?-[^-]+$'
-    milestone_suffix=''
-    if [[ "$target_milestone" =~ $digits_regex ]]; then
-	milestone_suffix="$BASH_REMATCH"
-    elif [[ "$target_milestone" =~ $with_milestone_regex ]]; then
-        milestone_suffix="${BASH_REMATCH[1]}"
+    tm_regex='([[:digit:]]+\.[[:digit:]]+)(\.[[:digit:]]+)?-[^-]+$'
+
+    tm_suffix=''
+    if [[ "$target_milestone" =~ $branch_regex ]]; then
+        tm_suffix="$BASH_REMATCH"
+    elif [[ "$target_milestone" =~ $tm_regex ]]; then
+        tm_suffix="${BASH_REMATCH[1]}"
     else
-        tools.log "${hdr}Unknown milestone $target_milestone"
+        tools.log "${hdr}Unknown milestone '${target_milestone}'"
     fi
 
-    # including also 'master' branch, since its branch suffix will be ""
-    if [[ "$milestone_suffix" != "" ]]; then
-        tools.ver_cmp "$branch_suffix" "$milestone_suffix"
-        case $? in
-            $TOOLS_VERCMP_EQUAL)
-                # keep going and allow modifying the status
-                ;;
-            $TOOLS_VERCMP_GT)
-                # keep going and allow modifying the status
-                ;;
-            $TOOLS_VERCMP_LT)
-                # check if the patch is on master branch or if there are newer branches
-                # like x.y.z to consider (i.e skip the move to MODIFIED)
-                matching_branches=(
-                    $(gerrit.get_branches "*-$milestone_suffix")
-                )
-                if [[ "$matching_branches" =~ $digits_regex ]]; then
-                    tools.log "::bug $bug_id::Skipping detected branches" \
-                        "($matching_branches) that match target milestone" \
-                        "$target_milestone, bug should move to MODIFIED" \
-                        "only when merged on the latest branch for the target milestone"
-                    message+="${message:+\n}$msg_hdr::SKIPPED${res:+, $res}"
-                    continue
-                fi
-                tools.log "::bug $bug_id::Changing bug with branch version " \
-                    "lower than target milestone because there's no branch " \
-                    "($matching_branches) that matches the milestone " \
-                    "$target_milestone"
-                # if there is no matching branch, keep going and allow
-                # modifying the status
-                ;;
-            *)
-                message+="${message:+\n}$msg_hdr::"
-                message+="Error comparing milestone and branch, please "
-                message+="contact ${CONTACT:-infra@ovirt.org}"
+    msg=''
+    # check if tm_suffix is not equal to branch_suffix
+    if [[ "${tm_suffix}" != "${branch_suffix}" ]] ; then
+        tools.log "${hdr}tm_suffix '${tm_suffix}' is not equal to" \
+            "branch_suffix '${branch_suffix}', checking if suffix match..."
+
+        # check if tm_suffix match branch_suffix (X.Y/.Z)
+        if [[ "${tm_suffix}" =~ "${branch_suffix}" ]] ; then
+        tools.log "${hdr}tm_suffix '${tm_suffix}' match the branch_suffix" \
+            "'${branch_suffix}', checking if branch exist..."
+
+            # if the branch does not exist ==> move bug to MODIFIED
+            matching_branch=$(gerrit.get_branches "*-${tm_suffix}$")
+            tools.log "${hdr}matching_branch: ${matching_branch}"
+            if [[ ${matching_branch:-"None"} =~ $tm_suffix ]] ; then
+                msg="The branch '${matching_branch}' for the current "
+                msg+="target milestone '${target_milestone}' exists."
+                tools.log "${hdr}${msg}"
+                message+="${message:+\n}${msg_hdr}SKIPPED, ${msg}"
                 continue
-                ;;
-        esac
+            fi
+        else
+            msg="tm_suffix '${tm_suffix}' does not match branch_suffix "
+            msg+="'${branch_suffix}'."
+            tools.log "${hdr}${msg}"
+            message+="${message:+\n}${msg_hdr}SKIPPED, ${msg}"
+            continue
+        fi
+    else
+        # tm_suffix equals to branch_suffix ==> move bug to MODIFIED
+        tools.log "${hdr}tm_suffix '${tm_suffix}' matches branch_suffix" \
+            "'${branch_suffix}' ==> moving bug to MODIFIED."
     fi
+    unset msg
+
     ## Modify the bug status
     if res=$(bz.update_status "$bug_id" "MODIFIED" "$commit"); then
-        tools.log "::bug $bug_id::Status updated on bug #$bug_id for gerrit " \
-            "id #${change_url//*\/} to MODIFIED${res:+\n    $res}"
+        tools.log "::bug $bug_id::Status updated on bug #$bug_id for patch" \
+            "id #${current_patch_id} to MODIFIED${res:+\n    $res}"
         message+="${message:+\n}$msg_hdr::OK${res:+, $res}"
     else
-        tools.log "::bug $bug_id::Failed to update the status of bug " \
-            "#$bug_id for gerrit id #${current_patch_id} to MODIFIED\n  $res"
+        tools.log "::bug $bug_id::Failed to update the status of bug" \
+            "#$bug_id for patch id #${current_patch_id} to MODIFIED\n  $res"
         message+="${message:+\n}$msg_hdr::FAILED, $res"
     fi
     conf.t_put message "$message"
 done
+
 if [[ ${#bug_ids[@]} -eq 0 ]]; then
     tools.review "" "" "* Set MODIFIED::IGNORE, no Bug-Url found."
 else
