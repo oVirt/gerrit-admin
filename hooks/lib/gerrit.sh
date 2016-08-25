@@ -129,7 +129,7 @@ gerrit.get_branches(){
         branch="${branch#* }"
         branch="${branch#  }"
         echo "${branch}"
-    done < <( git branch --list ${pattern:+$pattern} )
+    done < <( git branch -a | grep -E ${pattern:+$pattern} )
     popd &>/dev/null
     return 0
 }
