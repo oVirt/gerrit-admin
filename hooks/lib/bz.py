@@ -1,8 +1,6 @@
 #!/usr/bin/env python
-import os
 import xmlrpclib
 import re
-from dulwich.repo import Repo
 import logging
 import argparse
 import json
@@ -13,22 +11,100 @@ class WrongProduct(Exception):
     pass
 
 
+class Bug(object):
+    """
+    Bug structure
+    """
+
+    def __init__(
+        self, product, status, title, flags, target_rel, milestone,
+        component, classification
+    ):
+
+        self.product = product
+        self.status = status
+        self.title = title
+        self.flags = flags
+        self.target_rel = target_rel
+        self.milestone = milestone
+        self.component = component
+        self.classification = classification
+
+
 class Bugzilla(object):
-    def __init__(self, user=None, passwd=None,
-                 url='https://bugzilla.redhat.com/xmlrpc.cgi'):
+    """
+    Bugzilla Object
+    """
+
+    def __init__(
+        self, user=None, passwd=None,
+        url='https://bugzilla.redhat.com/xmlrpc.cgi'
+    ):
         self.rpc = xmlrpclib.ServerProxy(url)
         self.user = user
         self.passwd = passwd
+        self.url = url
 
     def wrap(self, dictionary):
         if self.user:
             dictionary['Bugzilla_login'] = self.user
         if self.passwd:
             dictionary['Bugzilla_password'] = self.passwd
+        if self.url:
+            dictionary['Bugzilla_url'] = self.url
         return dictionary
 
     def __getattr__(self, what):
         return getattr(self.rpc, what)
+
+    @staticmethod
+    def extract_flags(list_of_dicts):
+        """
+        Get bugzilla bug flags
+
+        :param list_of_dicts: list of dict flags
+        :return dict of flag names (key) and flag statuses (value)
+        """
+        flag_dict = {}
+        for entry in list_of_dicts:
+            flag_dict[entry['name']] = entry['status']
+
+        return flag_dict
+
+    def extract_bug_info(self, bug_id):
+        """
+        Extract parameters from bz ticket
+
+        :param bug_id: bug number
+        :return bug object: bug object that will hold all the bug data info
+        """
+        try:
+            bug = self.rpc.Bug.get(
+                self.wrap({
+                    'ids': bug_id, 'extra_fields': ['flags', 'external_bugs'],
+                })
+            )
+        except (xmlrpclib.Fault, xmlrpclib.ProtocolError) as err:
+            logging.error("Failed to retrieve bug {0}:\n{1}".format(
+                bug_id, err
+            ))
+            return None
+
+        product = bug['bugs'][0]['product']
+        title = bug['bugs'][0]['summary']
+        status = bug['bugs'][0]['status']
+        flags = self.extract_flags(bug['bugs'][0]['flags'])
+        target_rel = bug['bugs'][0]['target_release']
+        milestone = bug['bugs'][0]['target_milestone']
+        classification = bug['bugs'][0]['classification']
+        component = bug['bugs'][0]['component']
+
+        bug_data = Bug(
+            product=product, status=status, component=component,
+            title=title, flags=flags, milestone=milestone,
+            classification=classification, target_rel=target_rel,
+        )
+        return bug_data
 
     def update_bug(self, bug_id, **fields):
         bug = self.wrap({
@@ -43,8 +119,9 @@ class Bugzilla(object):
             'extra_fields': ['external_bugs'],
         }))
         if not bug['bugs']:
-            logging.error("Unable to get bug %s\n%s"
-                          % (str(bug_id), bug['faults']))
+            logging.error("Unable to get bug {0}\n{1}".format(
+                str(bug_id), bug['faults']
+            ))
             return None
         # Only one response when asking by the commit hash
         bug = bug['bugs'][0]
@@ -63,62 +140,71 @@ class Bugzilla(object):
             bug_id,
             external_bug_id,
             ensure_product=ensure_product)
-        external = {}
+        external = dict()
         external['ext_type_id'] = ext_type_id
         external['ext_bz_bug_id'] = external_bug_id
-        if description is not None:
-            external['ext_description'] = description
-        elif orig_external:
-            external['ext_description'] = orig_external['ext_description']
-        if status is not None:
-            external['ext_status'] = status
-        elif orig_external:
-            external['ext_status'] = orig_external['ext_status']
-        if branch is not None:
-            external['ext_priority'] = branch
-        elif orig_external:
-            external['ext_priority'] = orig_external['ext_priority']
         if not orig_external:
+            if description is not None:
+                external['ext_description'] = description
+            if status is not None:
+                external['ext_status'] = status
             self.ExternalBugs.add_external_bug(self.wrap({
                 'bug_ids': [bug_id],
                 'external_bugs': [external],
             }))
-            orig_external = self.get_external(
-                bug_id,
-                external_bug_id,
-                ensure_product=ensure_product,
-            )
         else:
+            if description is not None:
+                external['ext_description'] = description
+            else:
+                external['ext_description'] = orig_external['ext_description']
+            if status is not None:
+                external['ext_status'] = status
+            else:
+                external['ext_status'] = orig_external['ext_status']
+            if branch is not None:
+                external['ext_priority'] = branch
+            else:
+                external['ext_priority'] = orig_external['ext_priority']
             self.ExternalBugs.update_external_bug(self.wrap(external))
 
+    @staticmethod
+    def get_bug_urls(commit):
+        """
+        Get bug url\s from the passed commit
 
-def get_bug_ids(commit):
-    """
-    Get the bug ids that were specified in the commit message
+        :param commit: commit from gerrit change
+        :return: list of bug urls
+        """
 
-    :param commit: Commit to get the message from
-    """
-    bug_regexp = re.compile(
-        r'''
-        ^Bug-Url:\ https?://bugzilla\.redhat\.com/ ## base url
-            (show_bug\.cgi\?id=)? ## optional cgi
-            (?P<bug_id>\d+) ## bug id itself
-        $''',
-        re.VERBOSE
-    )
-    revert_regexp = re.compile(
-        '^This reverts commit (?P<commit>[[:alnum:]]+)$')
-    repo = Repo(os.environ['GIT_DIR'])
-    bugs = []
-    message = repo[commit].message
-    for line in message.splitlines():
-        rev_match = revert_regexp.search(line)
-        if rev_match and rev_match.groupsdict()['commit'] != commit:
-            return get_bug_ids(rev_match.groupsdict()['commit'])
-        match = bug_regexp.search(line)
-        if match:
-            bugs.append(match.groupdict()['bug_id'])
-    return bugs
+        bug_urls = []
+        regex_bug_url = r'bug-url:.*\d\b'
+        regex_flags = re.IGNORECASE
+
+        # check if we have bug-url in the commit
+        if re.search(regex_bug_url, commit, flags=regex_flags):
+            commit_lines = commit.split(',')
+            for line in commit_lines:
+                if re.findall(regex_bug_url, line, flags=regex_flags):
+                    bug_urls.append(line)
+
+        return bug_urls
+
+    @staticmethod
+    def get_bug_ids(bug_urls):
+        """
+        Get bug id from bug url
+
+        :param bug_urls: list of bug urls
+        :return: set of unique bug ids
+        """
+        regex_bug_id = r'\d+\b'
+        bug_ids = set()
+
+        # get bug_id from bug_url
+        for url in bug_urls:
+            bug_ids.add(re.findall(regex_bug_id, url)[0])
+
+        return bug_ids
 
 
 if __name__ == '__main__':
