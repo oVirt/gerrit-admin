@@ -1,0 +1,421 @@
+#!/usr/bin/env python
+"""
+check_target_milestone hook
+----------------------------
+The new hook is based on the bz.py module.
+
+The new hook is replacing the old
+patchset-created.bz.3.correct_target_milestone hook.
+It checks only u/s bugs (oVirt classification)
+It checks that the current patch branch major version is the same
+as the bug target milestone major version.
+
+  Example 1:
+  tm: '---'
+  branch_maj_version: any
+  result: WARN
+
+  Example 2:
+  tm_maj_version: 3.6
+  branch_maj_version: 3.6
+  result: OK
+
+  Example 3:
+  tm_maj_version: 3.6
+  branch_maj_version: 4.0
+  result: checks for clone flags
+
+  Example 4:
+  tm_maj_version: 4.0
+  branch_maj_version: 3.6
+  result: WARN
+"""
+import os
+import logging
+import sys
+import socket
+import re
+from config import load_config
+from gerrit import Gerrit
+from bz import Bugzilla
+from tools import get_parser_pc
+from termcolor import colored
+logger = logging.getLogger(__name__)
+
+
+FNAME = sys.argv[0].split("/")[-1]
+S_HOOK_NAME = 'START HOOK: ' + FNAME
+E_HOOK_NAME = 'END HOOK: ' + FNAME
+HDR = "* Check TM"
+
+
+class NotRelevant(Exception):
+    """
+    Customized exception for not relevant checks
+    (master branch, no bug url, empty tm '---')
+    """
+    def __init__(self, message):
+        print_review_results(message)
+        print_title(E_HOOK_NAME)
+        exit(0)
+
+
+def init_logging(verbose=False, log_file=False):
+    """
+    Initialize logging
+
+    :param verbose: boolean, if set to True setting log level to DEBUG
+    :param log_file: boolean, if set to True writes logs to a file
+    """
+    if verbose:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.INFO
+
+    if log_file:
+        log_name = FNAME + '.log'
+        log_path = os.path.join(os.path.dirname(__file__), '..', 'logs')
+        logging.basicConfig(
+            filename=os.path.join(log_path, log_name),
+            level=log_level,
+            format=(
+                '%(asctime)s::' + str(os.getpid()) +
+                '::%(levelname)s::%(message)s'
+            )
+        )
+    else:
+        logging.basicConfig(
+            level=log_level,
+            format=(
+                '%(asctime)s::' + str(os.getpid()) +
+                '::%(levelname)s::%(message)s'
+            )
+        )
+
+
+def print_review_results(
+    message, cr_value='0', v_value='0',
+):
+    """
+    Prints the review results
+
+    :param message: the review message
+    :param cr_value: code-review value
+    :param v_value: verified value
+    """
+    review_results = "\n".join((cr_value, v_value, message))
+    print review_results
+
+
+def check_config(config):
+    """
+    Check that all the necessary configuration values are defined
+
+    :param config: dict of configuration keys and values
+    """
+    not_defined_confs = [
+        elem for elem
+        in (
+            'BZ_USER', 'BZ_PASS', 'BZ_SERVER',
+            'GERRIT_SRV', 'PRODUCT', 'TRACKER_ID',
+            'CLASSIFICATION',
+        )
+        if elem not in config
+    ]
+
+    if not_defined_confs:
+        logger.error("Missing configuration values %s" % ', '.join(
+            not_defined_confs
+        ))
+        sys.exit(1)
+
+
+def print_title(title):
+    """
+    Prints the title with line of dashes above and below
+
+    :param title: title name (start/end hook: <hook name>)
+    """
+    logger.debug(colored('-' * len(title), 'blue'))
+    logger.debug(colored("{0}".format(title), 'cyan'))
+    logger.debug(colored('-' * len(title), 'blue'))
+
+
+def get_configuration():
+    """
+    Gets configuration parameters from config file
+
+    :return: dict of config keys and values
+    """
+    # load the configuration file
+    config = load_config()
+
+    # check the configuration file
+    check_config(config=config)
+
+    # set bugzilla url
+    config['BZ_URL'] = config['BZ_SERVER'] + '/xmlrpc.cgi'
+
+    logger.debug("==> config: {0}".format(config))
+    logger.debug("==> bz user: {0}".format(config['BZ_USER']))
+    logger.debug("==> bz password: {0}".format(config['BZ_PASS']))
+    logger.debug("==> bz url: {0}\n".format(config['BZ_URL']))
+
+    return config
+
+
+def set_objects(config):
+    """
+    Sets bugzilla and gerrit objects
+
+    :param config: dict of configuration keys and values
+    :return: bugzilla and gerrit objects
+    """
+
+    # set bugzilla object
+    bz_obj = Bugzilla(
+        user=config['BZ_USER'],
+        passwd=config['BZ_PASS'],
+        url=config['BZ_URL'],
+    )
+
+    # set gerrit object
+    gerrit_obj = Gerrit(config['GERRIT_SRV'])
+
+    return bz_obj, gerrit_obj
+
+
+def get_arguments():
+    """
+    Get arguments
+
+    :return: args object with all the received parameters
+    """
+    logger.debug("==> received params: {0}".format(sys.argv))
+    parser = get_parser_pc()
+    args, unknown = parser.parse_known_args()
+    logger.debug("==> args: {0}\n".format(args))
+
+    if 'master' in args.branch:
+        message = "{0}::IGNORE, not relevant for branch: {1}".format(
+            HDR, args.branch
+        )
+        raise NotRelevant(message)
+
+    return args
+
+
+def get_commit_message(gerrit_obj, commit):
+    """
+    Get bug urls from commit message
+
+    :param gerrit_obj: gerrit object
+    :param commit: patch commit id
+    :return: string of the commit message
+    """
+
+    # get the change from commit id
+    change = gerrit_obj.query(commit)[0]
+    logger.debug("==> change: {0}".format(change))
+
+    # return commit message
+    return change['commitMessage']
+
+
+def get_bug_ids(bz_obj, gerrit_obj, commit, bz_server):
+    """
+    Get bug ids from patch commit message
+
+    :param bz_obj: bugzilla object
+    :param gerrit_obj: gerrit object
+    :param commit: patch commit id
+    :param bz_server: bugzilla server
+    :return: list of bug ids
+    """
+
+    # get bug url\s from the commit message
+    bug_urls = bz_obj.get_bug_urls(
+        commit=get_commit_message(gerrit_obj=gerrit_obj, commit=commit),
+        bz_server=bz_server,
+    )
+    logger.debug("==> bug_urls: {0}".format(bug_urls))
+
+    if not bug_urls:
+        message = "{0}::IGNORE, no bug url/s found".format(HDR)
+        raise NotRelevant(message)
+
+    # get bug ids from bug urls
+    bug_ids = bz_obj.get_bug_ids(bug_urls=bug_urls)
+    logger.debug("==> bug_ids: {0}\n".format(bug_ids))
+
+    return bug_ids
+
+
+def get_bug_info(bz_obj, bug_id):
+    """
+    Get bug information from the passed bug id
+
+    :param bz_obj: bugzilla object
+    :param bug_id: bug id
+    :return: object with all the bug info
+    """
+
+    logger.debug("==> checking bug_id: {0}".format(bug_id))
+    try:
+        bug_info = bz_obj.extract_bug_info(bug_id=bug_id)
+    except socket.gaierror:
+        message = "{0}::WARN, failed to get bug info, ".format(HDR)
+        message += "network issues. please contact infra@ovirt.org."
+        print_review_results(message=message)
+        sys.exit(0)
+
+    return bug_info
+
+
+def get_maj_version(full_version):
+    """
+    Extract major version out of full version
+
+    :param full_version: full version (i.e *-X.Y.Z or *-X.Y)
+    :return: string with major version (i.e X.Y)
+    """
+
+    regex_version = r'\d+.\d+\b'
+
+    # get branch and target milestone major version
+    version = re.findall(
+        regex_version, (full_version.split('-')[-1])
+    )
+
+    return version[0]
+
+
+def check_clone_flags(flags, tm_maj_version):
+    """
+    Check for clone flags for the passed tm major version
+    :param flags: list of flags
+    :param tm_maj_version: tm major version (i.e 3.6)
+    :return: status string
+    """
+
+    for flag in flags:
+        if tm_maj_version in flag:
+            status = "OK, found clone candidate {0}".format(flag)
+            status += "for target milestone"
+            break
+    else:
+        status = "WARN, no clone candidate for target milestone"
+
+    return status
+
+
+def check_target_milestone(bz_obj, bug_ids, branch, classifications):
+    """
+    Checks that the bug target milestone is the same as the
+    patch Branch version
+
+    :param bz_obj: bugzilla object
+    :param bug_ids: list of bug ids
+    :param branch: branch (i.e ovirt-engine-3.6.9)
+    :param classifications: list of classifications
+    :return: tuple of message and cr_value
+    """
+
+    warn = False
+    cr_value = "0"
+    messages = []
+
+    for bug_id in bug_ids:
+        bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
+
+        classification = bug_info.classification
+        logger.debug("==> classification: {0}".format(classification))
+
+        tm = bug_info.milestone
+        logger.debug("==> target milestone: {0}".format(tm))
+
+        # check for 'oVirt' classification
+        if classification in classifications:
+            if tm != "---":
+                logger.debug("==> branch: {0}".format(branch))
+
+                # get branch major version
+                branch_maj_version = get_maj_version(branch)
+                logger.debug("==> branch_maj_version: {0}".format(
+                    branch_maj_version
+                ))
+
+                # get target milestone major version
+                tm_maj_version = get_maj_version(tm)
+                logger.debug("==> tm_maj_version: {0}".format(tm_maj_version))
+
+                # check that branch major version matches
+                # target milestone major version
+                if branch_maj_version == tm_maj_version:
+                    status = "OK, target milestone"
+
+                # if branch maj version larger than target milestone maj
+                # version, check for clone candidate flags
+                elif float(branch_maj_version) > float(tm_maj_version):
+                    status = check_clone_flags(
+                        flags=bug_info.flags, tm_maj_version=tm_maj_version
+                    )
+                else:
+                    status = "WARN, wrong target milestone"
+                    warn = True
+            else:
+                status = "WARN, target milestone"
+                warn = True
+
+            message = "{0}::#{1}::{2}: {3}".format(HDR, bug_id, status, tm)
+        else:
+            message = "{0}::#{1}::IGNORE, ".format(HDR, bug_id)
+            message += "not relevant for classification: {0}".format(
+                classification
+            )
+
+        messages.append(message)
+
+    if warn:
+        # TODO change cr_value to "-1" after completing tests
+        cr_value = "0"
+
+    return "\n".join(messages), cr_value
+
+
+def main():
+    """
+    Main function
+    """
+    # initialize logging
+    init_logging(verbose=True)
+    print_title(S_HOOK_NAME)
+
+    # get all passed arguments
+    args = get_arguments()
+
+    # get configuration
+    config = get_configuration()
+
+    # set bugzilla and gerrit objects
+    bz_obj, gerrit_obj = set_objects(config=config)
+
+    # get bug ids
+    bug_ids = get_bug_ids(
+        bz_obj=bz_obj, gerrit_obj=gerrit_obj, commit=args.commit,
+        bz_server=config['BZ_SERVER']
+    )
+
+    # check target milestone
+    message, cr_value = check_target_milestone(
+        bz_obj=bz_obj, bug_ids=bug_ids, branch=args.branch,
+        classifications=config['CLASSIFICATION'],
+    )
+
+    # prints the message and the code review value
+    print_review_results(message=message, cr_value=cr_value)
+    print_title(E_HOOK_NAME)
+
+
+if __name__ == '__main__':
+    main()
