@@ -172,20 +172,18 @@ class Bugzilla(object):
         """
         Get bug url\s from the passed commit
 
-        :param commit: commit from gerrit change
+        :param commit: commit message string
         :return: list of bug urls
         """
 
         bug_urls = []
-        regex_bug_url = r'bug-url:.*\d\b'
+        regex_search = r'bug-url.*\d\b'
+        regex_bug_url = r'http.*\d\b'
         regex_flags = re.IGNORECASE
 
         # check if we have bug-url in the commit
-        if re.search(regex_bug_url, commit, flags=regex_flags):
-            commit_lines = commit.split(',')
-            for line in commit_lines:
-                if re.findall(regex_bug_url, line, flags=regex_flags):
-                    bug_urls.append(line)
+        if re.search(regex_bug_url, commit, regex_flags):
+            bug_urls = re.findall(regex_bug_url, commit, regex_flags)
 
         return bug_urls
 
