@@ -10,12 +10,28 @@ import logging
 import sys
 from config import load_config
 from gerrit import Gerrit
-from bz import (
-    get_bug_ids,
-    Bugzilla,
-    WrongProduct,
-)
+from bz import Bugzilla, WrongProduct
 from tools import get_parser_pc
+
+
+def get_bug_ids(bz_obj, commit):
+    """
+    Get bug ids from patch commit message
+
+    :param bz_obj: bugzilla object
+    :param commit: commit message string
+    :return: list of bug ids
+    """
+
+    # get bug url\s from the commit message
+    bug_urls = bz_obj.get_bug_urls(commit=commit)
+    logging.debug("==> bug_urls: {0}".format(bug_urls))
+
+    # get bug ids from bug urls
+    bug_ids = bz_obj.get_bug_ids(bug_urls=bug_urls)
+    logging.debug("==> bug_ids: {0}\n".format(bug_ids))
+
+    return bug_ids
 
 
 if __name__ == '__main__':
@@ -47,7 +63,7 @@ if __name__ == '__main__':
         )
     gerrit = Gerrit(config['GERRIT_SRV'])
     change = gerrit.query(args.commit)[0]
-    bugs = get_bug_ids(args.commit)
+    bugs = get_bug_ids(bz_obj=bgz, commit=change['commitMessage'])
     logging.info("Got bugs %s" % bugs)
     for bug_id in bugs:
         logging.info("%s::Updating external" % bug_id)

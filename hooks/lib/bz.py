@@ -143,28 +143,33 @@ class Bugzilla(object):
         external = dict()
         external['ext_type_id'] = ext_type_id
         external['ext_bz_bug_id'] = external_bug_id
+
+        if description:
+            external['ext_description'] = description
+
+        if status:
+            external['ext_status'] = status
+
+        if branch:
+            external['ext_priority'] = branch
+
+        # if we don't have external bug tracker, add a new one or else update
+        # the exist one
         if not orig_external:
-            if description is not None:
-                external['ext_description'] = description
-            if status is not None:
-                external['ext_status'] = status
             self.ExternalBugs.add_external_bug(self.wrap({
                 'bug_ids': [bug_id],
                 'external_bugs': [external],
             }))
         else:
-            if description is not None:
-                external['ext_description'] = description
-            else:
+            if description is None:
                 external['ext_description'] = orig_external['ext_description']
-            if status is not None:
-                external['ext_status'] = status
-            else:
+
+            if status is None:
                 external['ext_status'] = orig_external['ext_status']
-            if branch is not None:
-                external['ext_priority'] = branch
-            else:
+
+            if branch is None:
                 external['ext_priority'] = orig_external['ext_priority']
+
             self.ExternalBugs.update_external_bug(self.wrap(external))
 
     @staticmethod
@@ -182,7 +187,7 @@ class Bugzilla(object):
         regex_flags = re.IGNORECASE
 
         # check if we have bug-url in the commit
-        if re.search(regex_bug_url, commit, regex_flags):
+        if re.search(regex_search, commit, regex_flags):
             bug_urls = re.findall(regex_bug_url, commit, regex_flags)
 
         return bug_urls
