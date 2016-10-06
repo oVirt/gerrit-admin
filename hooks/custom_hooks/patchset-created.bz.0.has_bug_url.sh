@@ -1,1 +1,0 @@
-patchset-created.bz.0.has_bug_url
