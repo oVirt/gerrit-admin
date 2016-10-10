@@ -173,24 +173,19 @@ class Bugzilla(object):
             self.ExternalBugs.update_external_bug(self.wrap(external))
 
     @staticmethod
-    def get_bug_urls(commit):
+    def get_bug_urls(commit, bz_server="https://bugzilla.redhat.com"):
         """
         Get bug url\s from the passed commit
 
         :param commit: commit message string
-        :return: list of bug urls
+        :param bz_server: bugzilla server
+        :return: list of bug urls or empty list
         """
 
-        bug_urls = []
-        regex_search = r'bug-url.*\d\b'
-        regex_bug_url = r'http.*\d\b'
+        regex_search = r'https*:\/\/' + bz_server.split("//")[-1] + r'\/\d+\b'
         regex_flags = re.IGNORECASE
 
-        # check if we have bug-url in the commit
-        if re.search(regex_search, commit, regex_flags):
-            bug_urls = re.findall(regex_bug_url, commit, regex_flags)
-
-        return bug_urls
+        return re.findall(regex_search, commit, regex_flags)
 
     @staticmethod
     def get_bug_ids(bug_urls):
