@@ -203,19 +203,21 @@ def get_commit_message(gerrit_obj, commit):
     return change['commitMessage']
 
 
-def get_bug_ids(bz_obj, gerrit_obj, commit):
+def get_bug_ids(bz_obj, gerrit_obj, commit, bz_server):
     """
     Get bug ids from patch commit message
 
     :param bz_obj: bugzilla object
     :param gerrit_obj: gerrit object
     :param commit: patch commit id
+    :param bz_server: bugzilla server
     :return: list of bug ids
     """
 
     # get bug url\s from the commit message
     bug_urls = bz_obj.get_bug_urls(
-        commit=get_commit_message(gerrit_obj=gerrit_obj, commit=commit)
+        commit=get_commit_message(gerrit_obj=gerrit_obj, commit=commit),
+        bz_server=bz_server,
     )
     logger.debug("==> bug_urls: {0}".format(bug_urls))
 
@@ -318,7 +320,8 @@ def main():
 
     # get bug ids
     bug_ids = get_bug_ids(
-        bz_obj=bz_obj, gerrit_obj=gerrit_obj, commit=args.commit
+        bz_obj=bz_obj, gerrit_obj=gerrit_obj, commit=args.commit,
+        bz_server=['BZ_SERVER'],
     )
 
     # check product
