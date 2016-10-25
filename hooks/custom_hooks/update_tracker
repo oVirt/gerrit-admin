@@ -9,7 +9,7 @@ The new hook is replacing the old update_tracker hook.
   Tracker ==> tracker_id (81 --> oVirt gerrit)
   ID ==> change id
   Priority ==> patch branch
-  Status ==> NEW --> POST, MERGED --> MERGED
+  Status ==> NEW --> POST (excluding draft patches), MERGED --> MERGED
   Summary ==> commit subject
 """
 import os
@@ -185,12 +185,13 @@ def get_arguments():
     return args
 
 
-def get_change(gerrit_obj, commit):
+def get_change(gerrit_obj, commit, draft):
     """
     Get change info from commit message
 
     :param gerrit_obj: gerrit object
     :param commit: patch commit id
+    :param draft: bool value (true if it's draft patch, false otherwise)
     :return: dict with change info
     """
 
@@ -201,8 +202,8 @@ def get_change(gerrit_obj, commit):
         if key == 'commitMessage':
             continue
 
-        # if status == NEW, replace it with POST
-        if key == 'status':
+        # if status == NEW and the patch is not draft, replace it with POST
+        if key == 'status' and not draft:
             if value == 'NEW':
                 change['status'] = 'POST'
 
@@ -328,7 +329,10 @@ def main():
     bz_obj, gerrit_obj = set_objects(config=config)
 
     # get gerrit change
-    change = get_change(gerrit_obj=gerrit_obj, commit=args.commit)
+    change = get_change(
+        gerrit_obj=gerrit_obj, commit=args.commit,
+        draft=bool(args.is_draft.capitalize()),
+    )
 
     # get bug ids
     bug_ids = get_bug_ids(
