@@ -1,0 +1,344 @@
+#!/usr/bin/env python
+"""
+set_post hook
+--------------------
+The new hook is replacing the old set_POST hook.
+
+- It updates only u/s bugs (oVirt classification)
+- It updates the bug status in bugzilla only from NEW to POST
+"""
+import os
+import logging
+import sys
+import socket
+import ast
+from config import load_config
+from gerrit import Gerrit
+from bz import Bugzilla, WrongProduct
+from tools import get_parser_pc
+from termcolor import colored
+logger = logging.getLogger(__name__)
+
+
+FNAME = sys.argv[0].split("/")[-1]
+S_HOOK_NAME = 'START HOOK: ' + FNAME
+E_HOOK_NAME = 'END HOOK: ' + FNAME
+HDR = "* Set POST"
+
+
+class NotRelevant(Exception):
+    """
+    Customized exception for not relevant checks (master branch)
+    """
+    def __init__(self, message):
+        print_review_results(message)
+        print_title(E_HOOK_NAME)
+        exit(0)
+
+
+def init_logging(verbose=False, log_file=False):
+    """
+    Initialize logging
+
+    :param verbose: boolean, if set to True setting log level to DEBUG
+    :param log_file: boolean, if set to True writes logs to a file
+    """
+    if verbose:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.INFO
+
+    if log_file:
+        log_name = FNAME + '.log'
+        log_path = os.path.join(os.path.dirname(__file__), '..', 'logs')
+        logging.basicConfig(
+            filename=os.path.join(log_path, log_name),
+            level=log_level,
+            format=(
+                '%(asctime)s::' + str(os.getpid()) +
+                '::%(levelname)s::%(message)s'
+            )
+        )
+    else:
+        logging.basicConfig(
+            level=log_level,
+            format=(
+                '%(asctime)s::' + str(os.getpid()) +
+                '::%(levelname)s::%(message)s'
+            )
+        )
+
+
+def print_review_results(
+    message, cr_value='0', v_value='0',
+):
+    """
+    Prints the review results
+
+    :param message: the review message
+    :param cr_value: code-review value
+    :param v_value: verified value
+    """
+    review_results = "\n".join((cr_value, v_value, message))
+    print review_results
+
+
+def check_config(config):
+    """
+    Check that all the necessary configuration values are defined
+
+    :param config: dict of configuration keys and values
+    """
+    not_defined_confs = [
+        elem for elem
+        in (
+            'BZ_USER', 'BZ_PASS', 'BZ_SERVER',
+            'GERRIT_SRV', 'PRODUCT', 'TRACKER_ID',
+            'CLASSIFICATION',
+        )
+        if elem not in config
+    ]
+
+    if not_defined_confs:
+        logger.error("Missing configuration values %s" % ', '.join(
+            not_defined_confs
+        ))
+        sys.exit(1)
+
+
+def print_title(title):
+    """
+    Prints the title with line of dashes above and below
+
+    :param title: title name (start/end hook: <hook name>)
+    """
+    logger.debug(colored('-' * len(title), 'blue'))
+    logger.debug(colored("{0}".format(title), 'cyan'))
+    logger.debug(colored('-' * len(title), 'blue'))
+
+
+def get_configuration():
+    """
+    Gets configuration parameters from config file
+
+    :return: dict of config keys and values
+    """
+    # load the configuration file
+    config = load_config()
+
+    # check the configuration file
+    check_config(config=config)
+
+    # set bugzilla url
+    config['BZ_URL'] = config['BZ_SERVER'] + '/xmlrpc.cgi'
+
+    logger.debug("==> config: {0}".format(config))
+    logger.debug("==> bz user: {0}".format(config['BZ_USER']))
+    logger.debug("==> bz password: {0}".format(config['BZ_PASS']))
+    logger.debug("==> bz url: {0}\n".format(config['BZ_URL']))
+
+    return config
+
+
+def set_objects(config):
+    """
+    Sets bugzilla and gerrit objects
+
+    :param config: dict of configuration keys and values
+    :return: bugzilla and gerrit objects
+    """
+
+    # set bugzilla object
+    bz_obj = Bugzilla(
+        user=config['BZ_USER'],
+        passwd=config['BZ_PASS'],
+        url=config['BZ_URL'],
+    )
+
+    # set gerrit object
+    gerrit_obj = Gerrit(config['GERRIT_SRV'])
+
+    return bz_obj, gerrit_obj
+
+
+def get_arguments():
+    """
+    Get arguments
+
+    :return: args object with all the received parameters
+    """
+    logger.debug("==> received params: {0}".format(sys.argv))
+    parser = get_parser_pc()
+    args, unknown = parser.parse_known_args()
+    logger.debug("==> args: {0}\n".format(args))
+
+    return args
+
+
+def get_change(gerrit_obj, commit, draft):
+    """
+    Get change info from commit message
+
+    :param gerrit_obj: gerrit object
+    :param commit: patch commit id
+    :param draft: bool value (true if it's draft patch, false otherwise)
+    :return: dict with change info
+    """
+
+    # get the change from commit id
+    change = gerrit_obj.query(commit)[0]
+    logger.debug("==> change: {0}".format(change))
+    for key, value in change.items():
+        if key == 'commitMessage':
+            continue
+
+        # if status == NEW and the patch is not draft, replace it with POST
+        if key == 'status' and not draft:
+            if value == 'NEW':
+                change['status'] = 'POST'
+
+            logger.debug("==> {0}: {1}".format(key, change['status']))
+            continue
+
+        logger.debug("==> {0}: {1}".format(key, value))
+
+    return change
+
+
+def get_bug_ids(bz_obj, commit_msg, bz_server):
+    """
+    Get bug ids from patch commit message
+
+    :param bz_obj: bugzilla object
+    :param commit_msg: commit message string
+    :param bz_server: bugzilla server
+    :return: list of bug ids
+    """
+
+    # get bug url\s from the commit message
+    bug_urls = bz_obj.get_bug_urls(commit=commit_msg, bz_server=bz_server)
+    logger.debug("==> bug_urls: {0}".format(bug_urls))
+
+    if not bug_urls:
+        message = "{0}::IGNORE, no bug url/s found".format(HDR)
+        raise NotRelevant(message)
+
+    # get bug ids from bug urls
+    bug_ids = bz_obj.get_bug_ids(bug_urls=bug_urls)
+    logger.debug("==> bug_ids: {0}\n".format(bug_ids))
+
+    return bug_ids
+
+
+def get_bug_info(bz_obj, bug_id):
+    """
+    Get bug information from the passed bug id
+
+    :param bz_obj: bugzilla object
+    :param bug_id: bug id
+    :return: object with all the bug info
+    """
+
+    logger.debug("==> checking bug_id: {0}".format(bug_id))
+    try:
+        bug_info = bz_obj.extract_bug_info(bug_id=bug_id)
+    except socket.gaierror:
+        message = "{0}::WARN, failed to get bug info, ".format(HDR)
+        message += "network issues. please contact infra@ovirt.org."
+        print_review_results(message=message)
+        sys.exit(0)
+
+    return bug_info
+
+
+def update_bug_status(bz_obj, bug_ids, change, classifications):
+    """
+    Update bug status to POST
+
+    :param bz_obj: bugzilla object
+    :param bug_ids: list of bug ids
+    :param change: change object
+    :param classifications: list of classifications
+    :return: tuple of message and cr_value
+    """
+    cr_value = "0"
+    messages = []
+
+    for bug_id in bug_ids:
+        logger.debug("==> updating external: {0}\n".format(bug_id))
+
+        bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
+
+        classification = bug_info.classification
+        logger.debug("==> classification: {0}".format(classification))
+
+        change_status = change['status']
+        logger.debug("==> status: {0}".format(change_status))
+
+        # check for 'oVirt' classification
+        if classification in classifications:
+            if change_status == 'POST':
+                try:
+                    bz_obj.update_bug(bug_id=bug_id, status=change_status)
+                except WrongProduct, exc:
+                    status = "WARN, failed to update external tracker: "
+                    status += "{0}".format(exc.message)
+                else:
+                    status = "OK, status: {0}".format(change_status)
+            else:
+                status = "IGNORE, not relevant for '{0}' patches".format(
+                    change_status
+                )
+        else:
+            status = "IGNORE, not relevant for {0} classification".format(
+                classification
+            )
+
+        message = "{0}::#{1}::{2}".format(HDR, bug_id, status)
+        messages.append(message)
+
+    return "\n".join(messages), cr_value
+
+
+def main():
+    """
+    Main function
+    """
+    # initialize logging
+    init_logging(verbose=True)
+    print_title(S_HOOK_NAME)
+
+    # get all passed arguments
+    args = get_arguments()
+
+    # get configuration
+    config = get_configuration()
+
+    # set bugzilla and gerrit objects
+    bz_obj, gerrit_obj = set_objects(config=config)
+
+    # get gerrit change
+    change = get_change(
+        gerrit_obj=gerrit_obj, commit=args.commit,
+        draft=ast.literal_eval(args.is_draft.capitalize()),
+    )
+
+    # get bug ids
+    bug_ids = get_bug_ids(
+        bz_obj=bz_obj, commit_msg=change['commitMessage'],
+        bz_server=config['BZ_SERVER'],
+    )
+
+    # check bug url
+    message, cr_value = update_bug_status(
+        bz_obj=bz_obj, bug_ids=bug_ids, change=change,
+        classifications=config['CLASSIFICATION'],
+    )
+
+    # prints the message and the code review value
+    print_review_results(message=message, cr_value=cr_value)
+    print_title(E_HOOK_NAME)
+
+
+if __name__ == '__main__':
+    main()
