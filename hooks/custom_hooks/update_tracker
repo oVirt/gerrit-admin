@@ -16,6 +16,7 @@ import os
 import logging
 import sys
 import socket
+import ast
 from config import load_config
 from gerrit import Gerrit
 from bz import Bugzilla, WrongProduct
@@ -331,7 +332,7 @@ def main():
     # get gerrit change
     change = get_change(
         gerrit_obj=gerrit_obj, commit=args.commit,
-        draft=bool(args.is_draft.capitalize()),
+        draft=ast.literal_eval(args.is_draft.capitalize()),
     )
 
     # get bug ids
