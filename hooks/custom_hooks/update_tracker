@@ -177,12 +177,6 @@ def get_arguments():
     args, unknown = parser.parse_known_args()
     logger.debug("==> args: {0}\n".format(args))
 
-    if 'master' in args.branch:
-        message = "{0}::IGNORE, not relevant for branch: {1}".format(
-            HDR, args.branch
-        )
-        raise NotRelevant(message)
-
     return args
 
 
