@@ -12,8 +12,8 @@ patchset-created.bz.0.has_bug_url hook and it based on the bz.py module.
 
   Example 1:
   classification: oVirt
-  bug url: https://other-bugzilla.redhat.com/1234567
-  result: WARN, wrong/misspelled bug url
+  bug url: https://bugzilla.redhat.com/1234567
+  result: OK
 
   Example 2:
   classification: other
@@ -47,7 +47,7 @@ HDR = "* Check Bug-Url"
 
 class NotRelevant(Exception):
     """
-    Customized exception for not relevant checks (master branch)
+    Customized exception for not relevant checks
     """
     def __init__(self, message):
         print_review_results(message)
@@ -191,12 +191,6 @@ def get_arguments():
     args, unknown = parser.parse_known_args()
     logger.debug("==> args: {0}\n".format(args))
 
-    if 'master' in args.branch:
-        message = "{0}::IGNORE, not relevant for branch: {1}".format(
-            HDR, args.branch
-        )
-        raise NotRelevant(message)
-
     return args
 
 
@@ -235,10 +229,6 @@ def get_bug_urls(bz_obj, gerrit_obj, commit, bz_server):
     )
     logger.debug("==> bug_urls: {0}".format(bug_urls))
 
-    if not bug_urls:
-        message = "{0}::IGNORE, no bug url/s found".format(HDR)
-        raise NotRelevant(message)
-
     return bug_urls
 
 
@@ -263,12 +253,13 @@ def get_bug_info(bz_obj, bug_id):
     return bug_info
 
 
-def check_bug_url(bz_obj, bug_urls, classifications):
+def check_bug_url(bz_obj, bug_urls, branch, classifications):
     """
-    Checks that bug product is the same as patch project
+    Validate the bug url
 
     :param bz_obj: bugzilla object
     :param bug_urls: list of bug urls
+    :param branch: patch branch
     :param classifications: list of classifications
     :return: tuple of message and cr_value
     """
@@ -277,31 +268,40 @@ def check_bug_url(bz_obj, bug_urls, classifications):
     cr_value = "0"
     messages = []
 
-    for bug_url in bug_urls:
-
-        bug_id = bug_url.split("/")[-1]
-
-        # check that we receive bug info
-        bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
-
-        if not bug_info:
-            status = "WARN, unavailable bug id: {0}".format(
-                bug_id
-            )
-            warn = True
+    if not bug_urls:
+        if 'master' in branch:
+            status = "IGNORE, no bug url/s found (optional for 'master' "
+            status += "branch, but mandatory for 'stable' branches)"
         else:
-            classification = bug_info.classification
-            logger.debug("==> classification: {0}".format(classification))
-
-            # check for 'oVirt' classification
-            if classification in classifications:
-                status = "OK"
-            else:
-                status = "IGNORE, not relevant for "
-                status += "'{0}' classification".format(classification)
+            status = "WARN, no bug url/s found"
+            warn = True
 
         message = "{0}::{1}".format(HDR, status)
-        messages.append(message)
+        messages = [message]
+    else:
+        for bug_url in bug_urls:
+
+            bug_id = bug_url.split("/")[-1]
+
+            # check that we receive bug info
+            bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
+
+            if not bug_info:
+                status = "WARN, unavailable bug id: {0}".format(bug_id)
+                warn = True
+            else:
+                classification = bug_info.classification
+                logger.debug("==> classification: {0}".format(classification))
+
+                # check for 'oVirt' classification
+                if classification in classifications:
+                    status = "OK"
+                else:
+                    status = "IGNORE, not relevant for "
+                    status += "'{0}' classification".format(classification)
+
+            message = "{0}::{1}".format(HDR, status)
+            messages.append(message)
 
     if warn:
         # TODO change cr_value to "-1" after completing tests
@@ -335,7 +335,7 @@ def main():
 
     # check bug urls
     message, cr_value = check_bug_url(
-        bz_obj=bz_obj, bug_urls=bug_urls,
+        bz_obj=bz_obj, bug_urls=bug_urls, branch=args.branch,
         classifications=config['CLASSIFICATION'],
     )
 
