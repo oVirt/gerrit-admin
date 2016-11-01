@@ -5,7 +5,18 @@ set_post hook
 The new hook is replacing the old set_POST hook.
 
 - It updates only u/s bugs (oVirt classification)
-- It updates the bug status in bugzilla only from NEW to POST
+- It updates bug status to POST only for NEW patches
+  and the bug status should be in NEW OR ASSIGNED state.
+
+Example: 1
+patch status: NEW
+bug status: NEW or ASSIGNED
+result: OK ==> change bug status to POST
+
+Example: 2
+patch status: MERGED
+bug status: other (POST|MODIFIED)
+result: IGNORE
 """
 import os
 import logging
@@ -14,7 +25,7 @@ import socket
 import ast
 from config import load_config
 from gerrit import Gerrit
-from bz import Bugzilla, WrongProduct
+from bz import Bugzilla
 from tools import get_parser_pc
 from termcolor import colored
 logger = logging.getLogger(__name__)
@@ -175,29 +186,21 @@ def get_arguments():
     return args
 
 
-def get_change(gerrit_obj, commit, draft):
+def get_change(gerrit_obj, commit):
     """
     Get change info from commit message
 
     :param gerrit_obj: gerrit object
     :param commit: patch commit id
-    :param draft: bool value (true if it's draft patch, false otherwise)
     :return: dict with change info
     """
 
     # get the change from commit id
     change = gerrit_obj.query(commit)[0]
     logger.debug("==> change: {0}".format(change))
+
     for key, value in change.items():
         if key == 'commitMessage':
-            continue
-
-        # if status == NEW and the patch is not draft, replace it with POST
-        if key == 'status' and not draft:
-            if value == 'NEW':
-                change['status'] = 'POST'
-
-            logger.debug("==> {0}: {1}".format(key, change['status']))
             continue
 
         logger.debug("==> {0}: {1}".format(key, value))
@@ -251,13 +254,54 @@ def get_bug_info(bz_obj, bug_id):
     return bug_info
 
 
-def update_bug_status(bz_obj, bug_ids, change, classifications):
+def set_status(bz_obj, bug_id, change_status, bug_status):
     """
-    Update bug status to POST
+    Sets bug status to 'POST' only if the current status is 'NEW' or 'ASSIGNED'
+
+    :param bz_obj: bugzilla object
+    :param bug_id: bug number
+    :param change_status: patch status
+    :param bug_status: bug status
+    :return: status message string
+    """
+
+    logger.debug("==> patch status: {0}".format(change_status))
+    logger.debug("==> bug status: {0}".format(bug_status))
+
+    bug_statuses = ['NEW', 'ASSIGNED']
+
+    if bug_status in bug_statuses and change_status == 'POST':
+        try:
+            bz_obj.update_bug(bug_id=bug_id, status=change_status)
+            status = "OK, bug status: '{0}'".format(change_status)
+        except socket.error as err:
+            status = "WARN, failed to update external tracker: {0}".format(err)
+    else:
+        if bug_status not in bug_statuses:
+            if bug_status == 'POST':
+                status = "IGNORE, bug is already in '{0}' status".format(
+                    bug_status
+                )
+            else:
+                status = "IGNORE, not relevant for bug status: '{0}' ".format(
+                    bug_status
+                )
+        else:
+            status = "IGNORE, not relevant for '{0}' patch".format(
+                change_status
+            )
+
+    return status
+
+
+def update_bug_status(bz_obj, bug_ids, change_status, draft, classifications):
+    """
+    Update bugs status only for the specified classification
 
     :param bz_obj: bugzilla object
     :param bug_ids: list of bug ids
-    :param change: change object
+    :param change_status: patch status string (i.e NEW)
+    :param draft: bool value (true if it's draft patch, false otherwise)
     :param classifications: list of classifications
     :return: tuple of message and cr_value
     """
@@ -269,26 +313,20 @@ def update_bug_status(bz_obj, bug_ids, change, classifications):
 
         bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
 
+        # if patch status == NEW and the patch is not draft,
+        # replace it with POST
+        if change_status == 'NEW' and not draft:
+            change_status = 'POST'
+
         classification = bug_info.classification
         logger.debug("==> classification: {0}".format(classification))
 
-        change_status = change['status']
-        logger.debug("==> status: {0}".format(change_status))
-
         # check for 'oVirt' classification
         if classification in classifications:
-            if change_status == 'POST':
-                try:
-                    bz_obj.update_bug(bug_id=bug_id, status=change_status)
-                except WrongProduct, exc:
-                    status = "WARN, failed to update external tracker: "
-                    status += "{0}".format(exc.message)
-                else:
-                    status = "OK, status: {0}".format(change_status)
-            else:
-                status = "IGNORE, not relevant for '{0}' patches".format(
-                    change_status
-                )
+            status = set_status(
+                bz_obj=bz_obj, bug_id=bug_id, change_status=change_status,
+                bug_status=bug_info.status,
+            )
         else:
             status = "IGNORE, not relevant for {0} classification".format(
                 classification
@@ -318,10 +356,7 @@ def main():
     bz_obj, gerrit_obj = set_objects(config=config)
 
     # get gerrit change
-    change = get_change(
-        gerrit_obj=gerrit_obj, commit=args.commit,
-        draft=ast.literal_eval(args.is_draft.capitalize()),
-    )
+    change = get_change(gerrit_obj=gerrit_obj, commit=args.commit)
 
     # get bug ids
     bug_ids = get_bug_ids(
@@ -329,9 +364,10 @@ def main():
         bz_server=config['BZ_SERVER'],
     )
 
-    # check bug url
+    # update bug status
     message, cr_value = update_bug_status(
-        bz_obj=bz_obj, bug_ids=bug_ids, change=change,
+        bz_obj=bz_obj, bug_ids=bug_ids, change_status=change['status'],
+        draft=ast.literal_eval(args.is_draft.capitalize()),
         classifications=config['CLASSIFICATION'],
     )
 
