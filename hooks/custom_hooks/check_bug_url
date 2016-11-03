@@ -265,7 +265,7 @@ def check_bug_url(bz_obj, bug_urls, branch, classifications):
     """
 
     warn = False
-    cr_value = "0"
+    v_value = "0"
     messages = []
 
     if not bug_urls:
@@ -304,10 +304,9 @@ def check_bug_url(bz_obj, bug_urls, branch, classifications):
             messages.append(message)
 
     if warn:
-        # TODO change cr_value to "-1" after completing tests
-        cr_value = "0"
+        v_value = "-1"
 
-    return "\n".join(messages), cr_value
+    return "\n".join(messages), v_value
 
 
 def main():
