@@ -1,0 +1,383 @@
+#!/usr/bin/env python
+"""
+check_backport
+--------------
+The new hook is replacing the old
+patchset-created.warn_if_not_merged_to_previous_branch
+Checks that the current patch has been merged on all the newer branches
+that are relevant to this patch.
+
+Example 1:
+patch branch: ovirt-engine-3.6.9
+relevant newer stable branch: ovirt-engine-3.6
+relevant newer stable branch: ovirt-engine-4.0
+relevant newer branch: master
+
+Example 2:
+patch branch: ovirt-engine-4.0.1
+relevant newer stable branch: ovirt-engine-4.0
+relevant newer branch: master
+"""
+import os
+import logging
+import sys
+from config import load_config
+from gerrit import Gerrit
+from bz import Bugzilla
+from tools import get_parser_pc, get_newer_branches
+from termcolor import colored
+logger = logging.getLogger(__name__)
+os.environ['GIT_DIR'] = '/opt/gerrit/git/ovirt-engine.git'
+
+
+FNAME = sys.argv[0].split("/")[-1]
+S_HOOK_NAME = 'START HOOK: ' + FNAME
+E_HOOK_NAME = 'END HOOK: ' + FNAME
+HDR = "* Check Backport"
+
+
+class NotRelevant(Exception):
+    """
+    Customized exception for not relevant checks
+    """
+    def __init__(self, message):
+        print_review_results(message)
+        print_title(E_HOOK_NAME)
+        sys.exit(0)
+
+
+def init_logging(verbose=False, log_file=False):
+    """
+    Initialize logging
+
+    :param verbose: boolean, if set to True setting log level to DEBUG
+    :param log_file: boolean, if set to True writes logs to a file
+    """
+    if verbose:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.INFO
+
+    if log_file:
+        log_name = FNAME + '.log'
+        log_path = os.path.join(os.path.dirname(__file__), '..', 'logs')
+        logging.basicConfig(
+            filename=os.path.join(log_path, log_name),
+            level=log_level,
+            format=(
+                '%(asctime)s::' + str(os.getpid()) +
+                '::%(levelname)s::%(message)s'
+            )
+        )
+    else:
+        logging.basicConfig(
+            level=log_level,
+            format=(
+                '%(asctime)s::' + str(os.getpid()) +
+                '::%(levelname)s::%(message)s'
+            )
+        )
+
+
+def print_review_results(
+    message, cr_value='0', v_value='0',
+):
+    """
+    Prints the review results
+
+    :param message: the review message
+    :param cr_value: code-review value
+    :param v_value: verified value
+    """
+    review_results = "\n".join((cr_value, v_value, message))
+    print review_results
+
+
+def check_config(config):
+    """
+    Check that all the necessary configuration values are defined
+
+    :param config: dict of configuration keys and values
+    """
+    not_defined_confs = [
+        elem for elem
+        in (
+            'BZ_USER', 'BZ_PASS', 'BZ_SERVER',
+            'GERRIT_SRV', 'PRODUCT', 'TRACKER_ID',
+            'CLASSIFICATION',
+        )
+        if elem not in config
+    ]
+
+    if not_defined_confs:
+        logger.error("Missing configuration values %s" % ', '.join(
+            not_defined_confs
+        ))
+        sys.exit(1)
+
+
+def print_title(title):
+    """
+    Prints the title with line of dashes above and below
+
+    :param title: title name (start/end hook: <hook name>)
+    """
+    logger.debug(colored('-' * len(title), 'blue'))
+    logger.debug(colored("{0}".format(title), 'cyan'))
+    logger.debug(colored('-' * len(title), 'blue'))
+
+
+def get_configuration():
+    """
+    Gets configuration parameters from config file
+
+    :return: dict of config keys and values
+    """
+    # load the configuration file
+    config = load_config()
+
+    # check the configuration file
+    check_config(config=config)
+
+    # set bugzilla url
+    config['BZ_URL'] = config['BZ_SERVER'] + '/xmlrpc.cgi'
+
+    logger.debug("==> config: {0}".format(config))
+    logger.debug("==> bz user: {0}".format(config['BZ_USER']))
+    logger.debug("==> bz password: {0}".format(config['BZ_PASS']))
+    logger.debug("==> bz url: {0}\n".format(config['BZ_URL']))
+
+    return config
+
+
+def set_objects(config):
+    """
+    Sets bugzilla and gerrit objects
+
+    :param config: dict of configuration keys and values
+    :return: bugzilla and gerrit objects
+    """
+
+    # set bugzilla object
+    bz_obj = Bugzilla(
+        user=config['BZ_USER'],
+        passwd=config['BZ_PASS'],
+        url=config['BZ_URL'],
+    )
+
+    # set gerrit object
+    gerrit_obj = Gerrit(config['GERRIT_SRV'])
+
+    return bz_obj, gerrit_obj
+
+
+def get_arguments():
+    """
+    Get arguments
+
+    :return: args object with all the received parameters
+    """
+    logger.debug("==> received params: {0}".format(sys.argv))
+    parser = get_parser_pc()
+    args, unknown = parser.parse_known_args()
+    logger.debug("==> args: {0}\n".format(args))
+
+    return args
+
+
+def get_change(gerrit_obj, commit):
+    """
+    Get change info from commit message
+
+    :param gerrit_obj: gerrit object
+    :param commit: patch commit id
+    :return: dict with change info
+    """
+
+    # get the change from commit id
+    change = gerrit_obj.query(commit)[0]
+    logger.debug("==> change: {0}".format(change))
+    for key, value in change.items():
+        if key == 'commitMessage':
+            continue
+
+        logger.debug("==> {0}: {1}".format(key, value))
+
+    return change
+
+
+def check_branches(changes, newer_branches, current_branch):
+    """
+    Checks that patch branch is in the newer branches list
+
+    :param changes: list with changes
+    :param newer_branches: list with newer branches
+    :param current_branch: string of the current branch
+    :return: tuple of
+        - merged branches list with patch status: open
+        - merged branches list with patch status: close
+        - not relevant branches list (branches that have the required
+          change id but aren't in the newer branches list)
+        - not merged branches list (branches that don't have the required
+          change id and are in the newer branches list)
+    """
+
+    mb_open_patch = []              # merged branches with open patches
+    mb_close_patch = []             # merged branches with close patches
+    nr_branches = []                # not relevant branches
+    nm_branches = newer_branches    # not merged branches
+
+    for change in changes:
+
+        if 'status' not in change:
+            continue
+
+        branch = change['branch']
+
+        if branch == current_branch:
+            continue
+
+        if branch in nm_branches:
+            if change['status'] == 'MERGED':
+                mb_close_patch.append(branch)
+            elif change['open']:
+                mb_open_patch.append(branch)
+
+            # remove branch from not merged branches list
+            nm_branches.remove(branch)
+        else:
+            nr_branches.append(branch)
+
+    return {
+        "nm_branches": nm_branches, "mb_open_patch": mb_open_patch,
+        "mb_close_patch": mb_close_patch, "nr_branches": nr_branches
+    }
+
+
+def check_patch_merged(branches, warn=False):
+    """
+    Checks that the patch was merged on all newer branches
+
+    :param branches: dictionary with branches lists:
+    nm_branches: list of not merged branches
+    mb_open_patch: list of merged branches with open patch
+    mb_close_patch:  list of merged branches with close patch
+    nr_branches: list with not relevant branches
+    :param warn: bool value (default: False)
+    :return: tuple with message and bool value
+    """
+
+    v_value = '0'
+    status = ''
+
+    # if nm_branches list isn't empty, show WARN message
+    # patch wasn't merged to the required branches
+    if branches["nm_branches"]:
+        status = "WARN, The patch wasn't backported to '{0}' ".format(
+            ', '.join(branches["nm_branches"])
+        )
+        status += "branch/es"
+        warn = True
+    elif branches["mb_open_patch"] and branches["mb_close_patch"]:
+        status = "IGNORE, The patch backported to all newer branches. "
+        status += "(closed in '{0}' branch/es, ".format(', '.join(
+            branches["mb_close_patch"]
+        ))
+        status += "but is still open in '{0}' branch/es)".format(', '.join(
+            branches["mb_open_patch"]
+        ))
+    elif branches["mb_open_patch"] and not branches["mb_close_patch"]:
+        status = "IGNORE, The patch backported to all newer branches."
+        status += "(open in '{0}' branch/es)".format(
+            ', '.join(branches["mb_open_patch"])
+        )
+    elif not branches["mb_open_patch"] and branches["mb_close_patch"]:
+        status = "OK, The patch backported to all newer branches. "
+        status += "(closed in {0})".format(
+            ', '.join(branches["mb_close_patch"])
+        )
+
+    if branches["nr_branches"]:
+        status += " found not relevant branch/es: '{0}' ".format(
+            ', '.join(branches["nr_branches"])
+        )
+        status += "(not exist in the newer branches list)"
+
+    message = "{0}::{1}".format(HDR, status)
+
+    if warn:
+        # TODO change v_value to "-1" after completing tests
+        v_value = "0"
+
+    return message, v_value
+
+
+def check_merged_to_newer(gerrit_obj, change_id, current_branch, project):
+    """
+    Checks that the patch change id is merged to newer branches
+
+    :param gerrit_obj: gerrit object
+    :param change_id: patch change id
+    :param current_branch: current_branch (i.e master, ovirt-engine-3.6.9)
+    :param project: project (i.e ovirt-engine)
+    :return: tuple of message and v_value
+    """
+
+    if 'master' in current_branch:
+        message = 'IGNORE, not relevant for branch: {0}'.format(current_branch)
+        NotRelevant(message)
+
+    # get newer branches than the current branch
+    newer_branches = get_newer_branches(
+        current_branch, os.environ['GIT_DIR']
+    )
+    logger.debug("==> newer_branches: {0}".format(newer_branches))
+
+    # get all the changes that have the same change_id
+    changes = gerrit_obj.query(change_id + ' project:' + project)
+    logger.debug("==> changes: {0}".format(changes))
+
+    # check if current branch exist in the newer branches list
+    branches = check_branches(
+        changes=changes, newer_branches=newer_branches,
+        current_branch=current_branch
+    )
+
+    return check_patch_merged(branches=branches)
+
+
+def main():
+    """
+    Main function
+    """
+    # initialize logging
+    init_logging(verbose=True)
+    print_title(S_HOOK_NAME)
+
+    # get all passed arguments
+    args = get_arguments()
+
+    # get configuration
+    config = get_configuration()
+
+    # set bugzilla and gerrit objects
+    bz_obj, gerrit_obj = set_objects(config=config)
+
+    # get gerrit change
+    change = get_change(
+        gerrit_obj=gerrit_obj, commit=args.commit,
+    )
+
+    # check if patch was merged to previous branches
+    message, cr_value = check_merged_to_newer(
+        gerrit_obj=gerrit_obj, change_id=change['id'],
+        current_branch=args.branch, project=args.project,
+    )
+
+    # prints the message and the code review value
+    print_review_results(message=message, cr_value=cr_value)
+    print_title(E_HOOK_NAME)
+
+
+if __name__ == '__main__':
+    main()
