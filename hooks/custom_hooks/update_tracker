@@ -180,13 +180,12 @@ def get_arguments():
     return args
 
 
-def get_change(gerrit_obj, commit, draft):
+def get_change(gerrit_obj, commit):
     """
     Get change info from commit message
 
     :param gerrit_obj: gerrit object
     :param commit: patch commit id
-    :param draft: bool value (true if it's draft patch, false otherwise)
     :return: dict with change info
     """
 
@@ -195,14 +194,6 @@ def get_change(gerrit_obj, commit, draft):
     logger.debug("==> change: {0}".format(change))
     for key, value in change.items():
         if key == 'commitMessage':
-            continue
-
-        # if status == NEW and the patch is not draft, replace it with POST
-        if key == 'status' and not draft:
-            if value == 'NEW':
-                change['status'] = 'POST'
-
-            logger.debug("==> {0}: {1}".format(key, change['status']))
             continue
 
         logger.debug("==> {0}: {1}".format(key, value))
@@ -257,7 +248,7 @@ def get_bug_info(bz_obj, bug_id):
 
 
 def update_tracker(
-        bz_obj, bug_ids, change, tracker_id, branch, classifications
+        bz_obj, bug_ids, change, tracker_id, branch, draft, classifications,
 ):
     """
     Update bugzilla external tracker info
@@ -267,16 +258,26 @@ def update_tracker(
     :param change: change object
     :param tracker_id: external tracker id (i.e: 81 --> oVirt gerrit)
     :param branch: patch branch
+    :param draft: 'true' string if it's a draft patch, 'false' string otherwise
+    or None if it's a merge
     :param classifications: list of classifications
     :return: tuple of message and cr_value
     """
     cr_value = "0"
     messages = []
 
+    if draft:
+        draft = ast.literal_eval(draft.capitalize())
+
     for bug_id in bug_ids:
         logger.debug("==> updating external: {0}\n".format(bug_id))
 
         bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
+
+        # if the patch status is 'NEW' and it's not a draft patch,
+        # replace the patch status to 'POST'
+        if change['status'] == 'NEW' and not draft:
+            change['status'] = 'POST'
 
         classification = bug_info.classification
         logger.debug("==> classification: {0}".format(classification))
@@ -324,10 +325,7 @@ def main():
     bz_obj, gerrit_obj = set_objects(config=config)
 
     # get gerrit change
-    change = get_change(
-        gerrit_obj=gerrit_obj, commit=args.commit,
-        draft=ast.literal_eval(args.is_draft.capitalize()),
-    )
+    change = get_change(gerrit_obj=gerrit_obj, commit=args.commit)
 
     # get bug ids
     bug_ids = get_bug_ids(
@@ -339,7 +337,7 @@ def main():
     message, cr_value = update_tracker(
         bz_obj=bz_obj, bug_ids=bug_ids, change=change,
         tracker_id=config['TRACKER_ID'], branch=args.branch,
-        classifications=config['CLASSIFICATION'],
+        draft=args.is_draft, classifications=config['CLASSIFICATION'],
     )
 
     # prints the message and the code review value
