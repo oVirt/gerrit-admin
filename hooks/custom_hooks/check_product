@@ -321,7 +321,7 @@ def main():
     # get bug ids
     bug_ids = get_bug_ids(
         bz_obj=bz_obj, gerrit_obj=gerrit_obj, commit=args.commit,
-        bz_server=['BZ_SERVER'],
+        bz_server=config['BZ_SERVER'],
     )
 
     # check product
