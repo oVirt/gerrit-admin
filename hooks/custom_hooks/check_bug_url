@@ -30,7 +30,6 @@ import os
 import logging
 import sys
 import socket
-import re
 from config import load_config
 from gerrit import Gerrit
 from bz import Bugzilla
@@ -269,9 +268,10 @@ def check_bug_url(bz_obj, bug_urls, branch, classifications):
     messages = []
 
     if not bug_urls:
-        if 'master' in branch:
-            status = "IGNORE, no bug url/s found (optional for 'master' "
-            status += "branch, but mandatory for 'stable' branches)"
+        if branch in ['master', 'refs/meta/config', 'meta/config']:
+            status = "IGNORE, no bug url/s found "
+            status += "(optional for '{0}' branch, ".format(branch)
+            status += "but mandatory for 'stable' branches)"
         else:
             status = "WARN, no bug url/s found"
             warn = True
