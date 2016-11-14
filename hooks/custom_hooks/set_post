@@ -328,7 +328,7 @@ def update_bug_status(bz_obj, bug_ids, change_status, draft, classifications):
                 bug_status=bug_info.status,
             )
         else:
-            status = "IGNORE, not relevant for {0} classification".format(
+            status = "IGNORE, not relevant for '{0}' classification".format(
                 classification
             )
 

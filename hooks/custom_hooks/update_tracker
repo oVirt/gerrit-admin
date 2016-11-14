@@ -297,7 +297,7 @@ def update_tracker(
             else:
                 status = "OK, status: {0}".format(change['status'])
         else:
-            status = "IGNORE, not relevant for {0} classification".format(
+            status = "IGNORE, not relevant for '{0}' classification".format(
                 classification
             )
 

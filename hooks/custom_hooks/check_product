@@ -289,7 +289,7 @@ def check_product(bz_obj, bug_ids, project, classifications):
             message = "{0}::#{1}::{2}: {3}".format(HDR, bug_id, status, product)
         else:
             message = "{0}::#{1}::IGNORE, ".format(HDR, bug_id)
-            message += "not relevant for classification: {0}".format(
+            message += "not relevant for '{0}' classification".format(
                 classification
             )
         messages.append(message)
