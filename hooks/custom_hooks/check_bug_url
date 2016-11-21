@@ -30,6 +30,7 @@ import os
 import logging
 import sys
 import socket
+import re
 from config import load_config
 from gerrit import Gerrit
 from bz import Bugzilla
@@ -281,7 +282,7 @@ def check_bug_url(bz_obj, bug_urls, branch, classifications):
     else:
         for bug_url in bug_urls:
 
-            bug_id = bug_url.split("/")[-1]
+            bug_id = re.findall(r'\d+\b', bug_url)[0]
 
             # check that we receive bug info
             bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
