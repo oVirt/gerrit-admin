@@ -1,22 +1,30 @@
 #!/usr/bin/env python
 """
 set_modified hook
---------------------
+-----------------
 The new hook is replacing the old set_MODIFIED hook.
 
 - It updates only u/s bugs (oVirt classification)
 - It updates bug status from POST to MODIFIED only for MERGED patches
   and the bug status should be in POST state.
+- It checks that all external bugs are MERGED before setting the bug status
+  to MODIFIED.
 
-Example: 1
+Example 1:
 patch status: MERGED
 bug status: POST
 result: OK ==> change bug status to MODIFIED
 
-Example: 2
+Example 2:
 patch status: NEW
 bug status: other (NEW|ASSIGNED|POST|MODIFIED)
 result: IGNORE
+
+Example 3:
+patch status: MERGED
+bug status: POST
+external tracker patches status: at list one in POST
+result: WARN ==> not changing status
 """
 import os
 import logging
@@ -254,37 +262,73 @@ def get_bug_info(bz_obj, bug_id):
     return bug_info
 
 
-def set_status(bz_obj, bug_id, change_status, bug_status):
+def check_external_bugs(external_bugs):
+    """
+    Check external bugs for an open patches
+
+    :param external_bugs: list of external bugs dicts
+    :return: tuple of status string and warn bool value
+    """
+    warn = False
+    status = ''
+
+    if external_bugs:
+        for bug in external_bugs:
+            if bug['ext_status'] == 'MERGED':
+                continue
+            else:
+                status = "WARN, can't change bug status to MODIFIED "
+                status += "(There are still open patches)"
+                warn = True
+                break
+    else:
+        status = "WARN, no external tracker info found."
+        warn = True
+
+    return status, warn
+
+
+def set_status(bz_obj, bug_id, change_status, bug_info):
     """
     Sets bug status to 'MODIFIED' only if the current status is 'POST'
 
     :param bz_obj: bugzilla object
     :param bug_id: bug number
     :param change_status: patch status
-    :param bug_status: bug status
+    :param bug_info: bug object with all the bug information
     :return: status message string
     """
+    cr_value = '0'
 
     logger.debug("==> patch status: {0}".format(change_status))
-    logger.debug("==> bug status: {0}".format(bug_status))
+    logger.debug("==> bug status: {0}".format(bug_info.status))
 
-    if bug_status == 'POST' and change_status == 'MODIFIED':
+    # TODO - remove this line (used only for testing)
+    change_status = 'MODIFIED'
+
+    if bug_info.status == 'POST' and change_status == 'MODIFIED':
+        status, warn = check_external_bugs(
+            external_bugs=bug_info.external_bugs
+        )
+        # if we have open patches, return with cr_value and status message
+        if warn:
+            return status, cr_value
+
         try:
             bz_obj.update_bug(bug_id=bug_id, status=change_status)
             status = "OK, bug status: '{0}'".format(change_status)
         except socket.error as err:
-            status = "WARN, failed to update external tracker: {0}".format(err)
+            status = "ERROR, failed to change bug status. ({0})".format(err)
+    elif bug_info.status != 'POST':
+        status = "IGNORE, not relevant for bug status: '{0}'".format(
+            bug_info.status
+        )
     else:
-        if bug_status != 'POST':
-            status = "IGNORE, not relevant for bug status: '{0}'".format(
-                bug_status
-            )
-        else:
-            status = "IGNORE, not relevant for '{0}' patch".format(
-                change_status
-            )
+        status = "IGNORE, not relevant for patch status: '{0}'".format(
+            change_status
+        )
 
-    return status
+    return status, cr_value
 
 
 def update_bug_status(bz_obj, bug_ids, change_status, draft, classifications):
@@ -319,9 +363,9 @@ def update_bug_status(bz_obj, bug_ids, change_status, draft, classifications):
 
         # check for 'oVirt' classification
         if classification in classifications:
-            status = set_status(
+            status, cr_value = set_status(
                 bz_obj=bz_obj, bug_id=bug_id, change_status=change_status,
-                bug_status=bug_info.status,
+                bug_info=bug_info,
             )
         else:
             status = "IGNORE, not relevant for {0} classification".format(

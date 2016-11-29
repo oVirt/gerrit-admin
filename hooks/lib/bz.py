@@ -18,7 +18,7 @@ class Bug(object):
 
     def __init__(
         self, product, status, title, flags, target_rel, milestone,
-        component, classification
+        component, classification, external_bugs,
     ):
 
         self.product = product
@@ -29,6 +29,7 @@ class Bug(object):
         self.milestone = milestone
         self.component = component
         self.classification = classification
+        self.external_bugs = external_bugs
 
 
 class Bugzilla(object):
@@ -98,11 +99,13 @@ class Bugzilla(object):
         milestone = bug['bugs'][0]['target_milestone']
         classification = bug['bugs'][0]['classification']
         component = bug['bugs'][0]['component']
+        external_bugs = bug['bugs'][0]['external_bugs']
 
         bug_data = Bug(
             product=product, status=status, component=component,
             title=title, flags=flags, milestone=milestone,
             classification=classification, target_rel=target_rel,
+            external_bugs=external_bugs,
         )
         return bug_data
 
