@@ -324,7 +324,9 @@ def check_merged_to_newer(gerrit_obj, change_id, current_branch, project):
     """
 
     if 'master' in current_branch:
-        message = 'IGNORE, not relevant for branch: {0}'.format(current_branch)
+        message = '{0}::IGNORE, not relevant for branch: {1}'.format(
+            HDR, current_branch
+        )
         NotRelevant(message)
 
     # get newer branches than the current branch
