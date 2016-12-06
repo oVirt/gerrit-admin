@@ -244,13 +244,21 @@ def get_bug_info(bz_obj, bug_id):
     logger.debug("==> checking bug_id: {0}".format(bug_id))
     try:
         bug_info = bz_obj.extract_bug_info(bug_id=bug_id)
-    except socket.gaierror:
-        message = "{0}::WARN, failed to get bug info, ".format(HDR)
-        message += "network issues. please contact infra@ovirt.org."
-        print_review_results(message=message)
-        sys.exit(0)
 
-    return bug_info
+        if bug_info is None:
+            reason = "(private bug or bug doesn't exist)"
+            warn = True
+
+    except socket.gaierror:
+        reason = "(network issues). Please contact infra@ovirt.org."
+        warn = True
+
+    if warn:
+        message = "{0}::WARN, failed to get bug info ".format(HDR)
+        message += reason
+        raise NotRelevant(message)
+    else:
+        return bug_info
 
 
 def check_bug_url(bz_obj, bug_urls, branch, classifications):
