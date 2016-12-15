@@ -98,6 +98,9 @@ def print_review_results(
     :param cr_value: code-review value
     :param v_value: verified value
     """
+    if v_value != '0':
+        message += " ({0})".format(v_value)
+
     review_results = "\n".join((cr_value, v_value, message))
     print review_results
 
@@ -343,13 +346,13 @@ def main():
     )
 
     # check bug urls
-    message, cr_value = check_bug_url(
+    message, v_value = check_bug_url(
         bz_obj=bz_obj, bug_urls=bug_urls, branch=args.branch,
         classifications=config['CLASSIFICATION'],
     )
 
     # prints the message and the code review value
-    print_review_results(message=message, cr_value=cr_value)
+    print_review_results(message=message, v_value=v_value)
     print_title(E_HOOK_NAME)
 
 

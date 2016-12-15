@@ -25,7 +25,7 @@ class Gerrit(object):
         cmd.extend(options)
         return cmd
 
-    def review(self, commit, project, message, verify=None, review=None,
+    def review(self, commit, project, message, review=None, verify=None,
                ci=None):
         gerrit_cmd = self.generate_cmd(
             'review',
