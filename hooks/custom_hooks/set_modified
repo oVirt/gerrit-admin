@@ -52,7 +52,7 @@ class NotRelevant(Exception):
     def __init__(self, message):
         print_review_results(message)
         print_title(E_HOOK_NAME)
-        exit(0)
+        sys.exit(0)
 
 
 def init_logging(verbose=False, log_file=False):
@@ -190,6 +190,12 @@ def get_arguments():
     parser = get_parser_pc()
     args, unknown = parser.parse_known_args()
     logger.debug("==> args: {0}\n".format(args))
+
+    if 'master' in args.branch:
+        message = "{0}::IGNORE, not relevant for branch: {1}".format(
+            HDR, args.branch
+        )
+        raise NotRelevant(message)
 
     return args
 
