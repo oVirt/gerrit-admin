@@ -88,6 +88,9 @@ def print_review_results(
     :param cr_value: code-review value
     :param v_value: verified value
     """
+    if v_value != '0':
+        message += " ({0})".format(v_value)
+
     review_results = "\n".join((cr_value, v_value, message))
     print review_results
 
@@ -228,10 +231,10 @@ def check_branches(changes, newer_branches, current_branch):
 
     for change in changes:
 
-        if 'status' not in change:
+        try:
+            branch = change['branch']
+        except KeyError:
             continue
-
-        branch = change['branch']
 
         if branch == current_branch:
             continue
@@ -255,7 +258,7 @@ def check_branches(changes, newer_branches, current_branch):
 
 def check_patch_merged(branches, warn=False):
     """
-    Checks that the patch was merged on all newer branches
+    Checks that the patch was merged to the relevant (newer) stable branches
 
     :param branches: dictionary with branches lists:
     nm_branches: list of not merged branches
@@ -269,51 +272,39 @@ def check_patch_merged(branches, warn=False):
     v_value = '0'
     status = ''
 
-    # if nm_branches list isn't empty, show WARN message
-    # patch wasn't merged to the required branches
-    if branches["nm_branches"]:
-        status = "WARN, The patch wasn't backported to '{0}' ".format(
-            ', '.join(branches["nm_branches"])
-        )
-        status += "branch/es"
+    # if patch wasn't merged to all the relevant branches, show WARN message
+    if branches["nm_branches"] or branches["mb_open_patch"]:
+        status = "WARN, The patch wasn't backported to all the relevant "
+        status += "stable branches."
         warn = True
-    elif branches["mb_open_patch"] and branches["mb_close_patch"]:
-        status = "IGNORE, The patch backported to all newer branches. "
-        status += "(closed in '{0}' branch/es, ".format(', '.join(
-            branches["mb_close_patch"]
-        ))
-        status += "but is still open in '{0}' branch/es)".format(', '.join(
-            branches["mb_open_patch"]
-        ))
-    elif branches["mb_open_patch"] and not branches["mb_close_patch"]:
-        status = "IGNORE, The patch backported to all newer branches."
-        status += "(open in '{0}' branch/es)".format(
-            ', '.join(branches["mb_open_patch"])
-        )
-    elif not branches["mb_open_patch"] and branches["mb_close_patch"]:
-        status = "OK, The patch backported to all newer branches. "
-        status += "(closed in {0})".format(
-            ', '.join(branches["mb_close_patch"])
-        )
+        if branches["mb_open_patch"]:
+            b_word = \
+                'branches' if len(branches["mb_open_patch"]) > 1 else 'branch'
+            status += " It is still open in the following {0}: '{1}'.".format(
+                b_word, ', '.join(branches["mb_open_patch"])
+            )
+    elif branches["mb_close_patch"]:
+            status = "OK, The patch backported to all the relevant "
+            status += "stable branches."
 
     if branches["nr_branches"]:
-        status += " found not relevant branch/es: '{0}' ".format(
-            ', '.join(branches["nr_branches"])
+        b_word = 'branches' if len(branches["nr_branches"]) > 1 else 'branch'
+        status += " In addition the patch was found "
+        status += "in the following {0}: '{1}' ".format(
+            b_word, ', '.join(branches["nr_branches"])
         )
-        status += "(not exist in the newer branches list)"
 
     message = "{0}::{1}".format(HDR, status)
 
     if warn:
-        # TODO change v_value to "-1" after completing tests
-        v_value = "0"
+        v_value = "-1"
 
     return message, v_value
 
 
 def check_merged_to_newer(gerrit_obj, change_id, current_branch, project):
     """
-    Checks that the patch change id is merged to newer branches
+    Checks that the patch was merged to the relevant (newer) stable branches
 
     :param gerrit_obj: gerrit object
     :param change_id: patch change id
@@ -332,7 +323,7 @@ def check_merged_to_newer(gerrit_obj, change_id, current_branch, project):
     newer_branches = get_newer_branches(
         current_branch, os.environ['GIT_DIR']
     )
-    logger.debug("==> newer_branches: {0}".format(newer_branches))
+    logger.debug("==> relevant_branches: {0}".format(newer_branches))
 
     # get all the changes that have the same change_id
     changes = gerrit_obj.query(change_id + ' project:' + project)
@@ -369,14 +360,14 @@ def main():
         gerrit_obj=gerrit_obj, commit=args.commit,
     )
 
-    # check if patch was merged to previous branches
-    message, cr_value = check_merged_to_newer(
+    # check if patch was merged to all the relevant stable branches
+    message, v_value = check_merged_to_newer(
         gerrit_obj=gerrit_obj, change_id=change['id'],
         current_branch=args.branch, project=args.project,
     )
 
-    # prints the message and the code review value
-    print_review_results(message=message, cr_value=cr_value)
+    # prints the message and the verify value
+    print_review_results(message=message, v_value=v_value)
     print_title(E_HOOK_NAME)
 
 
