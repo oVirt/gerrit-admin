@@ -268,7 +268,7 @@ def check_patch_merged(branches, warn=False):
     :param warn: bool value (default: False)
     :return: tuple with message and bool value
     """
-
+    warn = False
     v_value = '0'
     status = ''
 

@@ -255,6 +255,7 @@ def get_bug_info(bz_obj, bug_id):
     :param bug_id: bug id
     :return: object with all the bug info
     """
+    warn = False
 
     logger.debug("==> checking bug_id: {0}".format(bug_id))
     try:
