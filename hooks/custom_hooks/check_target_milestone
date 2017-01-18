@@ -285,18 +285,18 @@ def get_maj_version(full_version):
     """
     Extract major version out of full version
 
-    :param full_version: full version (i.e *-X.Y.Z or *-X.Y)
+    :param full_version: full version (i.e *-X.Y.Z[-*] or *-X.Y[-*])
     :return: string with major version (i.e X.Y)
     """
-
     regex_version = r'\d+.\d+\b'
 
-    # get branch and target milestone major version
-    version = re.findall(
-        regex_version, (full_version.split('-')[-1])
-    )
+    # get major version of branch or target milestone
+    version = re.findall(regex_version, full_version)
 
-    return version[0]
+    # if target milestone empty or equal to '---' return '999.999'
+    maj_version = version[0] if version else '999.999'
+
+    return maj_version
 
 
 def check_clone_flags(flags, tm_maj_version):
