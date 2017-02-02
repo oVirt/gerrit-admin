@@ -103,6 +103,9 @@ def print_review_results(
     :param cr_value: code-review value
     :param v_value: verified value
     """
+    if v_value != '0':
+        message += " ({0})".format(v_value)
+
     review_results = "\n".join((cr_value, v_value, message))
     print review_results
 
@@ -331,7 +334,7 @@ def check_target_milestone(bz_obj, bug_ids, branch, classifications):
     """
 
     warn = False
-    cr_value = "0"
+    v_value = "-1"
     messages = []
 
     for bug_id in bug_ids:
@@ -382,14 +385,12 @@ def check_target_milestone(bz_obj, bug_ids, branch, classifications):
             message += "not relevant for '{0}' classification".format(
                 classification
             )
-
         messages.append(message)
 
     if warn:
-        # TODO change cr_value to "-1" after completing tests
-        cr_value = "0"
+        v_value = "-1"
 
-    return "\n".join(messages), cr_value
+    return "\n".join(messages), v_value
 
 
 def main():
@@ -416,13 +417,13 @@ def main():
     )
 
     # check target milestone
-    message, cr_value = check_target_milestone(
+    message, v_value = check_target_milestone(
         bz_obj=bz_obj, bug_ids=bug_ids, branch=args.branch,
         classifications=config['CLASSIFICATION'],
     )
 
-    # prints the message and the code review value
-    print_review_results(message=message, cr_value=cr_value)
+    # prints the message and the verify value
+    print_review_results(message=message, v_value=v_value)
     print_title(E_HOOK_NAME)
 
 
