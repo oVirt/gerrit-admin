@@ -334,7 +334,7 @@ def check_target_milestone(bz_obj, bug_ids, branch, classifications):
     """
 
     warn = False
-    v_value = "-1"
+    v_value = "0"
     messages = []
 
     for bug_id in bug_ids:
