@@ -6,24 +6,36 @@ The new hook is replacing the old
 patchset-created.bz.0.has_bug_url hook and it based on the bz.py module.
 
 - It checks that the bug url exist
-- It checks only u/s bug urls (oVirt classification)
+- It checks u/s bug urls
+  classification: 'oVirt'
+- It checks d/s bug urls
+  products: 'Red Hat Enterprise Virtualization Manager'
 - It checks that the bug url is match bugzilla server (bugzilla.redhat.com)
 - It checks that the bug id is correct and available
+- It grades stable branch patches that don't have bug url with verify (-1)
+- It doesn't grade patches from the following branches:
+  'master', 'refs/meta/config', 'meta/config'
 
   Example 1:
   classification: oVirt
   bug url: https://bugzilla.redhat.com/1234567
-  result: OK
+  result: OK, classification: 'oVirt', product: 'ovirt-engine'
 
   Example 2:
+  product: Red Hat Enterprise Virtualization Manager
+  bug url: https://bugzilla.redhat.com/1234567
+  result: OK, classification: 'Red Hat', \
+          product: 'Red Hat Enterprise Virtualization Manager'
+
+  Example 3:
   classification: other
   bug url: https://bugzilla.redhat.com/1234567
   result: IGNORE, not relevant for 'other' classification
 
-  Example 3:
+  Example 4:
   classification: oVirt
   bug url: https://bugzilla.redhat.com/1234567890
-  result: WARN, unavailable bug id
+  result: WARN, failed to get bug info
 """
 
 import os
@@ -115,8 +127,8 @@ def check_config(config):
         elem for elem
         in (
             'BZ_USER', 'BZ_PASS', 'BZ_SERVER',
-            'GERRIT_SRV', 'PRODUCT', 'TRACKER_ID',
-            'CLASSIFICATION',
+            'GERRIT_SRV', 'PRODUCTS', 'TRACKER_ID',
+            'CLASSIFICATIONS',
         )
         if elem not in config
     ]
@@ -153,6 +165,10 @@ def get_configuration():
 
     # set bugzilla url
     config['BZ_URL'] = config['BZ_SERVER'] + '/xmlrpc.cgi'
+
+    for option in ['CLASSIFICATIONS', 'PRODUCTS']:
+        config[option] = config[option].split(',') \
+            if config[option] is not None or config[option] != '' else []
 
     logger.debug("==> config: {0}".format(config))
     logger.debug("==> bz user: {0}".format(config['BZ_USER']))
@@ -241,9 +257,10 @@ def get_bug_info(bz_obj, bug_id):
 
     :param bz_obj: bugzilla object
     :param bug_id: bug id
-    :return: object with all the bug info
+    :return: tuple of object with all the bug info and a reason string
     """
-    warn = False
+    reason = ''
+    bug_info = None
 
     logger.debug("==> checking bug_id: {0}".format(bug_id))
     try:
@@ -251,21 +268,14 @@ def get_bug_info(bz_obj, bug_id):
 
         if bug_info is None:
             reason = "(private bug or bug doesn't exist)"
-            warn = True
 
     except socket.gaierror:
         reason = "(network issues). Please contact infra@ovirt.org."
-        warn = True
 
-    if warn:
-        message = "{0}::WARN, failed to get bug info ".format(HDR)
-        message += reason
-        raise NotRelevant(message)
-    else:
-        return bug_info
+    return bug_info, reason
 
 
-def check_bug_url(bz_obj, bug_urls, branch, classifications):
+def check_bug_url(bz_obj, bug_urls, branch, classifications, products):
     """
     Validate the bug url
 
@@ -273,15 +283,17 @@ def check_bug_url(bz_obj, bug_urls, branch, classifications):
     :param bug_urls: list of bug urls
     :param branch: patch branch
     :param classifications: list of classifications
+    :param products: list of products
     :return: tuple of message and cr_value
     """
 
     warn = False
     v_value = "0"
     messages = []
+    skip_branches = ['master', 'refs/meta/config', 'meta/config']
 
     if not bug_urls:
-        if branch in ['master', 'refs/meta/config', 'meta/config']:
+        if branch in skip_branches:
             status = "IGNORE, no bug url/s found "
             status += "(optional for '{0}' branch, ".format(branch)
             status += "but mandatory for 'stable' branches)"
@@ -297,23 +309,28 @@ def check_bug_url(bz_obj, bug_urls, branch, classifications):
             bug_id = re.findall(r'\d+\b', bug_url)[0]
 
             # check that we receive bug info
-            bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
+            bug_info, reason = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
 
-            if not bug_info:
-                status = "WARN, unavailable bug id: {0}".format(bug_id)
-                warn = True
+            if bug_info is None:
+                status = "WARN, failed to get bug info "
+                status += reason if reason != '' else ''
+                if branch not in skip_branches:
+                    warn = True
             else:
                 classification = bug_info.classification
                 logger.debug("==> classification: {0}".format(classification))
+                product = bug_info.product
+                logger.debug("==> product: {0}".format(product))
 
-                # check for 'oVirt' classification
-                if classification in classifications:
-                    status = "OK"
+                if classification in classifications or product in products:
+                    status = "OK, classification: '{0}'".format(classification)
+                    status += ", product: '{0}'".format(product)
                 else:
                     status = "IGNORE, not relevant for "
-                    status += "'{0}' classification".format(classification)
+                    status += "classification: '{0}'".format(classification)
+                    status += ", product: {0}".format(product)
 
-            message = "{0}::{1}".format(HDR, status)
+            message = "{0}::{1}::{2}".format(HDR, bug_id, status)
             messages.append(message)
 
     if warn:
@@ -348,7 +365,7 @@ def main():
     # check bug urls
     message, v_value = check_bug_url(
         bz_obj=bz_obj, bug_urls=bug_urls, branch=args.branch,
-        classifications=config['CLASSIFICATION'],
+        classifications=config['CLASSIFICATIONS'], products=config['PRODUCTS']
     )
 
     # prints the message and the code review value
