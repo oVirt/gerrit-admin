@@ -4,7 +4,10 @@ update_tracker hook
 --------------------
 The new hook is replacing the old update_tracker hook.
 
-- It updates only u/s bugs (oVirt classification)
+- It updates u/s bugs
+  classification: 'oVirt'
+- It updates d/s bugs
+  products: 'Red Hat Enterprise Virtualization Manager'
 - It updates the following info in the bugzilla external tracker section:
   Tracker ==> tracker_id (81 --> oVirt gerrit)
   ID ==> change id
@@ -98,8 +101,8 @@ def check_config(config):
         elem for elem
         in (
             'BZ_USER', 'BZ_PASS', 'BZ_SERVER',
-            'GERRIT_SRV', 'PRODUCT', 'TRACKER_ID',
-            'CLASSIFICATION',
+            'GERRIT_SRV', 'PRODUCTS', 'TRACKER_ID',
+            'CLASSIFICATIONS',
         )
         if elem not in config
     ]
@@ -136,6 +139,10 @@ def get_configuration():
 
     # set bugzilla url
     config['BZ_URL'] = config['BZ_SERVER'] + '/xmlrpc.cgi'
+
+    for option in ['CLASSIFICATIONS', 'PRODUCTS']:
+        config[option] = config[option].split(',') \
+            if config[option] is not None or config[option] != '' else []
 
     logger.debug("==> config: {0}".format(config))
     logger.debug("==> bz user: {0}".format(config['BZ_USER']))
@@ -232,11 +239,10 @@ def get_bug_info(bz_obj, bug_id):
 
     :param bz_obj: bugzilla object
     :param bug_id: bug id
-    :return: object with all the bug info
+    :return: tuple of object with all the bug info and a reason string
     """
-    warn = False
-    bug_info = None
     reason = ''
+    bug_info = None
 
     logger.debug("==> checking bug_id: {0}".format(bug_id))
     try:
@@ -244,22 +250,16 @@ def get_bug_info(bz_obj, bug_id):
 
         if bug_info is None:
             reason = "(private bug or bug doesn't exist)"
-            warn = True
 
     except socket.gaierror:
         reason = "(network issues). Please contact infra@ovirt.org."
-        warn = True
 
-    if warn:
-        message = "{0}::WARN, failed to get bug info ".format(HDR)
-        message += reason
-        raise NotRelevant(message)
-    else:
-        return bug_info
+    return bug_info, reason
 
 
 def update_tracker(
-        bz_obj, bug_ids, change, tracker_id, branch, draft, classifications,
+        bz_obj, bug_ids, change, tracker_id, branch, draft,
+        classifications, products,
 ):
     """
     Update bugzilla external tracker info
@@ -272,6 +272,7 @@ def update_tracker(
     :param draft: 'true' string if it's a draft patch, 'false' string otherwise
     or None if it's a merge
     :param classifications: list of classifications
+    :param products: list of products
     :return: tuple of message and cr_value
     """
     cr_value = "0"
@@ -281,36 +282,40 @@ def update_tracker(
         draft = ast.literal_eval(draft.capitalize())
 
     for bug_id in bug_ids:
-        logger.debug("==> updating external: {0}\n".format(bug_id))
+        logger.debug("==> updating tracker with bug_id: {0}\n".format(bug_id))
 
-        bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
+        bug_info, reason = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
 
-        # if the patch status is 'NEW' and it's not a draft patch,
-        # replace the patch status to 'POST'
-        if change['status'] == 'NEW' and not draft:
-            change['status'] = 'POST'
-
-        classification = bug_info.classification
-        logger.debug("==> classification: {0}".format(classification))
-
-        # check for 'oVirt' classification
-        if classification in classifications:
-            try:
-                bz_obj.update_external(
-                    bug_id=bug_id, external_bug_id=change['number'],
-                    ext_type_id=tracker_id, description=change['subject'],
-                    status=change['status'], branch=branch,
-                )
-            except WrongProduct, exc:
-                status = "WARN, failed to update external tracker: {0}".format(
-                    exc.message
-                )
-            else:
-                status = "OK, status: {0}".format(change['status'])
+        if bug_info is None:
+            status = "WARN, failed to get bug info "
+            status += reason if reason != '' else ''
         else:
-            status = "IGNORE, not relevant for '{0}' classification".format(
-                classification
-            )
+            # if the patch status is 'NEW' and it's not a draft patch,
+            # replace the patch status to 'POST'
+            if change['status'] == 'NEW' and not draft:
+                change['status'] = 'POST'
+
+            classification = bug_info.classification
+            logger.debug("==> classification: {0}".format(classification))
+            product = bug_info.product
+            logger.debug("==> product: {0}".format(product))
+
+            if classification in classifications or product in products:
+                try:
+                    bz_obj.update_external(
+                        bug_id=bug_id, external_bug_id=change['number'],
+                        ext_type_id=tracker_id, description=change['subject'],
+                        status=change['status'], branch=branch,
+                    )
+                except WrongProduct, exc:
+                    status = "WARN, failed to update external "
+                    status += "tracker: {0}".format(exc.message)
+                else:
+                    status = "OK, tracker status: {0}".format(change['status'])
+            else:
+                status = "IGNORE, not relevant for "
+                status += "classification: '{0}'".format(classification)
+                status += ", product: '{0}'".format(product)
 
         message = "{0}::#{1}::{2}".format(HDR, bug_id, status)
         messages.append(message)
@@ -348,7 +353,8 @@ def main():
     message, cr_value = update_tracker(
         bz_obj=bz_obj, bug_ids=bug_ids, change=change,
         tracker_id=config['TRACKER_ID'], branch=args.branch,
-        draft=args.is_draft, classifications=config['CLASSIFICATION'],
+        draft=args.is_draft, classifications=config['CLASSIFICATIONS'],
+        products=config['PRODUCTS'],
     )
 
     # prints the message and the code review value
