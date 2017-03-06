@@ -349,7 +349,7 @@ def update_bug_status(
         classification = bug_info.classification
         logger.debug("==> classification: {0}".format(classification))
         product = bug_info.product
-        logger.debug("==> product: {}".format(product))
+        logger.debug("==> product: {0}".format(product))
 
         if classification in classifications or product in products:
             status = set_status(
