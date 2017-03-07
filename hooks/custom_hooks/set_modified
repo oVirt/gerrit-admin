@@ -4,7 +4,10 @@ set_modified hook
 -----------------
 The new hook is replacing the old set_MODIFIED hook.
 
-- It updates only u/s bugs (oVirt classification)
+- It updates u/s bugs
+  classifications: 'oVirt'
+- It updates d/s bugs
+  products: 'Red Hat Enterprise Virtualization Manager'
 - It updates bug status from POST to MODIFIED only for MERGED patches
   and the bug status should be in POST state.
 - It checks that all external bugs are MERGED before setting the bug status
@@ -30,7 +33,6 @@ import os
 import logging
 import sys
 import socket
-import ast
 from config import load_config
 from gerrit import Gerrit
 from bz import Bugzilla
@@ -112,8 +114,8 @@ def check_config(config):
         elem for elem
         in (
             'BZ_USER', 'BZ_PASS', 'BZ_SERVER',
-            'GERRIT_SRV', 'PRODUCT', 'TRACKER_ID',
-            'CLASSIFICATION',
+            'GERRIT_SRV', 'PRODUCTS', 'TRACKER_ID',
+            'CLASSIFICATIONS',
         )
         if elem not in config
     ]
@@ -150,6 +152,10 @@ def get_configuration():
 
     # set bugzilla url
     config['BZ_URL'] = config['BZ_SERVER'] + '/xmlrpc.cgi'
+
+    for option in ['CLASSIFICATIONS', 'PRODUCTS']:
+        config[option] = config[option].split(',') \
+            if config[option] is not None or config[option] != '' else []
 
     logger.debug("==> config: {0}".format(config))
     logger.debug("==> bz user: {0}".format(config['BZ_USER']))
@@ -255,7 +261,8 @@ def get_bug_info(bz_obj, bug_id):
     :param bug_id: bug id
     :return: object with all the bug info
     """
-    warn = False
+    reason = ''
+    bug_info = None
 
     logger.debug("==> checking bug_id: {0}".format(bug_id))
     try:
@@ -263,18 +270,11 @@ def get_bug_info(bz_obj, bug_id):
 
         if bug_info is None:
             reason = "(private bug or bug doesn't exist)"
-            warn = True
 
     except socket.gaierror:
         reason = "(network issues). Please contact infra@ovirt.org."
-        warn = True
 
-    if warn:
-        message = "{0}::WARN, failed to get bug info ".format(HDR)
-        message += reason
-        raise NotRelevant(message)
-    else:
-        return bug_info
+    return bug_info, reason
 
 
 def check_external_bugs(external_bugs):
@@ -303,94 +303,89 @@ def check_external_bugs(external_bugs):
     return status, warn
 
 
-def set_status(bz_obj, bug_id, change_status, bug_info):
+def set_status(bz_obj, bug_id, change_status, bug_status, external_bugs):
     """
     Sets bug status to 'MODIFIED' only if the current status is 'POST'
 
     :param bz_obj: bugzilla object
     :param bug_id: bug number
     :param change_status: patch status
-    :param bug_info: bug object with all the bug information
+    :param bug_status: bug status
+    :param external_bugs: list of external bug dicts
     :return: status message string
     """
-    cr_value = '0'
 
     logger.debug("==> patch status: {0}".format(change_status))
-    logger.debug("==> bug status: {0}".format(bug_info.status))
+    logger.debug("==> bug status: {0}".format(bug_status))
 
-    # TODO - remove this line (used only for testing)
-    change_status = 'MODIFIED'
+    if bug_status == 'POST' and change_status == 'MODIFIED':
+        status, warn = check_external_bugs(external_bugs=external_bugs)
 
-    if bug_info.status == 'POST' and change_status == 'MODIFIED':
-        status, warn = check_external_bugs(
-            external_bugs=bug_info.external_bugs
-        )
-        # if we have open patches, return with cr_value and status message
+        # if we have open patches, return status message
         if warn:
-            return status, cr_value
+            return status
 
         try:
             bz_obj.update_bug(bug_id=bug_id, status=change_status)
             status = "OK, bug status: '{0}'".format(change_status)
         except socket.error as err:
             status = "ERROR, failed to change bug status. ({0})".format(err)
-    elif bug_info.status != 'POST':
-        status = "IGNORE, not relevant for bug status: '{0}'".format(
-            bug_info.status
-        )
+    elif bug_status == 'MODIFIED':
+        status = "IGNORE, bug is already in '{0}' status".format(bug_status)
+    elif bug_status != 'POST':
+        status = "IGNORE, not relevant for bug status: "
+        status += "'{0}'".format(bug_status)
     else:
-        status = "IGNORE, not relevant for patch status: '{0}'".format(
-            change_status
-        )
+        status = "IGNORE, not relevant for patch status: "
+        status += "'{0}'".format(change_status)
 
-    return status, cr_value
+    return status
 
 
-def update_bug_status(bz_obj, bug_ids, change_status, draft, classifications):
+def update_bug_status(
+        bz_obj, bug_ids, change_status, classifications, products
+):
     """
     Update bugs status only for the specified classification
 
     :param bz_obj: bugzilla object
     :param bug_ids: list of bug ids
     :param change_status: patch status string (i.e MERGED)
-    :param draft: 'true' string if it's a draft patch, 'false' string otherwise
-    or None if it's a merge
     :param classifications: list of classifications
-    :return: tuple of message and cr_value
+    :param products: list of products
+    :return: tuple of message and v_value
     """
-    cr_value = "0"
+    v_value = "0"
     messages = []
-
-    if draft:
-        draft = ast.literal_eval(draft.capitalize())
 
     for bug_id in bug_ids:
 
-        bug_info = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
+        bug_info, reason = get_bug_info(bz_obj=bz_obj, bug_id=bug_id)
 
-        # if patch status is 'MERGED' and it's not a draft patch,
-        # replace the patch status to 'MODIFIED'
-        if change_status == 'MERGED' and not draft:
+        # if patch status is 'MERGED', replace the patch status to 'MODIFIED'
+        if change_status == 'MERGED':
             change_status = 'MODIFIED'
 
         classification = bug_info.classification
         logger.debug("==> classification: {0}".format(classification))
+        product = bug_info.product
+        logger.debug("==> product: {0}".format(product))
 
-        # check for 'oVirt' classification
-        if classification in classifications:
-            status, cr_value = set_status(
+        if classification in classifications or product in products:
+            status = set_status(
                 bz_obj=bz_obj, bug_id=bug_id, change_status=change_status,
-                bug_info=bug_info,
+                bug_status=bug_info.status,
+                external_bugs=bug_info.external_bugs
             )
         else:
-            status = "IGNORE, not relevant for {0} classification".format(
-                classification
-            )
+            status = "IGNORE, not relevant for "
+            status += "classification: '{0}'".format(classification)
+            status += ", product: '{0}'".format(product)
 
         message = "{0}::#{1}::{2}".format(HDR, bug_id, status)
         messages.append(message)
 
-    return "\n".join(messages), cr_value
+    return "\n".join(messages), v_value
 
 
 def main():
@@ -420,13 +415,13 @@ def main():
     )
 
     # update bug status
-    message, cr_value = update_bug_status(
+    message, v_value = update_bug_status(
         bz_obj=bz_obj, bug_ids=bug_ids, change_status=change['status'],
-        draft=args.is_draft, classifications=config['CLASSIFICATION'],
+        classifications=config['CLASSIFICATIONS'], products=config['PRODUCTS']
     )
 
     # prints the message and the code review value
-    print_review_results(message=message, cr_value=cr_value)
+    print_review_results(message=message, v_value=v_value)
     print_title(E_HOOK_NAME)
 
 
