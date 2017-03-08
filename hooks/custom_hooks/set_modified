@@ -11,7 +11,9 @@ The new hook is replacing the old set_MODIFIED hook.
 - It updates bug status from POST to MODIFIED only for MERGED patches
   and the bug status should be in POST state.
 - It checks that all external bugs are MERGED before setting the bug status
-  to MODIFIED.
+  to MODIFIED
+- It checks that the branch for the bug milestone doesn't exist
+  and only then it will set the bug status to MODIFIED
 
 Example 1:
 patch status: MERGED
@@ -27,16 +29,29 @@ Example 3:
 patch status: MERGED
 bug status: POST
 external tracker patches status: at list one in POST
-result: WARN ==> not changing status
+result: WARN ==> bug status won't be changed to MODIFIED
+(There are still open patches)
+
+Example 4:
+patch branch: ovirt-engine-4.1
+bug milestone: ovirt-4.1.1 (branch doesn't exist)
+result: OK ==> change bug status to MODIFIED
+
+Example 5:
+patch branch: ovirt-engine-4.1
+bug milestone: ovirt-4.1.1 (branch exist)
+result: WARN ==> bug status won't be changed to MODIFIED
+(detected a newer branch 'ovirt-engine-4.1.1.z' that matches the milestone)
 """
 import os
 import logging
 import sys
 import socket
+import re
 from config import load_config
 from gerrit import Gerrit
 from bz import Bugzilla
-from tools import get_parser_pc
+from tools import get_parser_pc, get_branches
 from termcolor import colored
 logger = logging.getLogger(__name__)
 
@@ -286,13 +301,10 @@ def check_tracker(gerrit_obj, tracker_number, branch):
     :param branch: patch branch (i.e ovirt-engine-4.1)
     :return: bool value, True if the change is not MERGED, False otherwise
     """
-    warn = False
+    if tracker_number is None:
+        return False
 
-    if tracker_number is not None:
-        changes = gerrit_obj.query(tracker_number)
-    else:
-        return warn
-
+    changes = gerrit_obj.query(tracker_number)
     for change in changes:
         if not change.get('status'):
             continue
@@ -302,10 +314,9 @@ def check_tracker(gerrit_obj, tracker_number, branch):
         if change.get('branch') == branch:
             change_status = change['status']
             if change_status != 'MERGED':
-                warn = True
-            break
+                return True
 
-    return warn
+    return False
 
 
 def check_external_trackers(trackers, gerrit_obj, change):
@@ -343,7 +354,7 @@ def check_external_trackers(trackers, gerrit_obj, change):
 
 
 def set_status(
-        bz_obj, bug_id, change, bug_status, trackers, gerrit_obj
+        bz_obj, bug_id, change, bug_info, gerrit_obj
 ):
     """
     Sets bug status to 'MODIFIED' only if the current status is 'POST'
@@ -351,22 +362,30 @@ def set_status(
     :param bz_obj: bugzilla object
     :param bug_id: bug number
     :param change: dict with patch information
-    :param bug_status: bug status
-    :param trackers: list of external tracker/s
+    :param bug_info: bug object
     :param gerrit_obj: gerrit object
     :return: status message string
     """
     change_status = change.get('status')
+    bug_status = bug_info.status if hasattr(bug_info, 'status') else ''
+    trackers = bug_info.external_bugs if hasattr(bug_info, 'external_bugs') \
+        else ''
 
     logger.debug("==> patch status: {0}".format(change.get('status')))
-    logger.debug("==> bug status: {0}".format(bug_status))
+    logger.debug("==> bug status: {0}\n".format(bug_status))
 
     if bug_status == 'POST' and change_status == 'MODIFIED':
+        # if we have open patches, return warn status message
         status, warn = check_external_trackers(
             trackers=trackers, gerrit_obj=gerrit_obj, change=change
         )
-
-        # if we have open patches, return status message
+        if not warn:
+            # if the change branch doesn't match the bug milestone,
+            # check that the branch for that milestone doesn't exist,
+            # if it exist return warn status message
+            status, warn = cmp_change_branch_and_bug_tm(
+                bug_info=bug_info, change=change
+            )
         if warn:
             return status
 
@@ -385,6 +404,72 @@ def set_status(
         status += "'{0}'".format(change_status)
 
     return status
+
+
+def get_version_suffix(string):
+    """
+    Get version suffix from string
+
+    :param string: string with
+    :return: version suffix
+    """
+    pattern = r'\d+(\.\d)+\b'
+    search_pattern = re.search(pattern=pattern, string=string)
+    suffix = search_pattern.group() if search_pattern is not None else ''
+
+    return suffix
+
+
+def cmp_change_branch_and_bug_tm(bug_info, change):
+    """
+    Compare change branch suffix with bug target milestone suffix
+
+    :param bug_info: bug object
+    :param change: dict with patch information
+    :return: tuple of status string and bool value
+    """
+    bm = bug_info.milestone if hasattr(bug_info, 'milestone') else ''
+    logging.debug("==> bug milestone: {0}".format(bm))
+    cb = change.get('branch')
+    logging.debug("==> patch branch: {0}".format(cb))
+
+    if not bm or bm == '---':
+        status = "WARN, bug status won't be changed to MODIFIED "
+        status += "(milestone: '{0}')".format(bm)
+        return status, True
+
+    # get bug milestone suffix version (ovirt-X.Y.Z ==> X.Y.Z)
+    bm_suffix = get_version_suffix(string=bm)
+    logging.debug("==> milestone suffix: {0}".format(bm_suffix))
+
+    # get change branch suffix version (ovirt-engine-X.Y.Z ==> X.Y.Z)
+    cb_suffix = get_version_suffix(string=cb)
+    logging.debug("==> branch suffix: {0}".format(cb_suffix))
+
+    # if bug milestone suffix version not equal to change brunch suffix
+    # version, the bug status should be changed from POST ==> MODIFIED
+    # only if the newer branch doesn't exist
+    if bm_suffix != cb_suffix:
+
+        # get all the branches for the current git project
+        branches = get_branches(repo_path=os.environ['GIT_DIR'])
+
+        nb = ''
+        # check if newer branch exist
+        pattern = re.compile(r'.*' + bm_suffix + r'.*')
+        for branch in branches:
+            search_obj = re.search(pattern, branch)
+            if search_obj is not None:
+                nb = search_obj.group()
+                break
+
+        if nb != '':
+            status = "WARN, bug status won't be changed to MODIFIED "
+            status += "(detected a newer branch '{0}' ".format(nb)
+            status += "that matches the milestone)"
+            return status, True
+
+    return '', False
 
 
 def update_bug_status(
@@ -420,8 +505,7 @@ def update_bug_status(
         if classification in classifications or product in products:
             status = set_status(
                 bz_obj=bz_obj, bug_id=bug_id, change=change,
-                bug_status=bug_info.status, trackers=bug_info.external_bugs,
-                gerrit_obj=gerrit_obj,
+                bug_info=bug_info, gerrit_obj=gerrit_obj,
             )
         else:
             status = "IGNORE, not relevant for "
