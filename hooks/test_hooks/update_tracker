@@ -1,0 +1,40 @@
+#!/usr/bin/env python
+"""
+update_tracker hook
+--------------------
+- It updates u/s bugs
+  classification: 'oVirt'
+- It updates d/s bugs
+  products: 'Red Hat Enterprise Virtualization Manager'
+- It updates the following info in the bugzilla external tracker section:
+  Tracker ==> tracker_id (81 --> oVirt gerrit)
+  ID ==> change id
+  Priority ==> patch branch
+  Status ==> NEW --> POST (excluding draft patches), MERGED --> MERGED
+  Summary ==> commit subject
+
+  Example 1:
+  patch status: NEW
+  draft: False
+  result: OK, tracker status updated to 'POST'
+
+  Example 2:
+  patch status: MERGED
+  draft: False
+  result: OK, tracker status updated to 'MERGED'
+"""
+import sys
+
+# add the lib top directory to the sys.path
+lib_dir = '/'.join(sys.path[0].split('/')[:-2]) + "/lib"
+sys.path.append(lib_dir)
+
+# import the hook_functions module
+imodule = __import__('hook_functions')
+
+# set global variables
+FNAME = sys.argv[0].split("/")[-1]
+HDR = "* Update Tracker"
+
+if __name__ == '__main__':
+    imodule.main(hdr=HDR, fname=FNAME)

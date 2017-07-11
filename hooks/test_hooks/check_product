@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+"""
+check_product hook
+-------------------
+- It checks only u/s bugs (oVirt classification)
+- It checks that the current patch project is the same as the bug product.
+- It ignores patches from master branch
+
+  Example 1:
+  classification: oVirt
+  patch Project: ovirt-engine
+  bug Product: ovirt-engine
+  result: OK, product: 'ovirt-engine'
+
+  Example 2:
+  classification: oVirt
+  patch Project: ovirt-engine
+  bug Product: ovirt-engine-cli
+  result: WARN, wrong product: ovirt-engine-cli (-1)
+
+  Example 3:
+  classification: oVirt
+  patch Project: ovirt-engine
+  patch Branch: master
+  bug Product: ovirt-engine
+  result: IGNORE, not relevant for branch: master
+"""
+import sys
+
+# add the lib top directory to the sys.path
+lib_dir = '/'.join(sys.path[0].split('/')[:-2]) + "/lib"
+sys.path.append(lib_dir)
+
+# import the hook_functions module
+imodule = __import__('hook_functions')
+
+# set global variables
+FNAME = sys.argv[0].split("/")[-1]
+HDR = "* Check Product"
+
+if __name__ == '__main__':
+    imodule.main(hdr=HDR, fname=FNAME)

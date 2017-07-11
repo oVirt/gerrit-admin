@@ -1,0 +1,68 @@
+#!/usr/bin/env python
+"""
+set_modified hook
+-----------------
+- It updates u/s bugs
+  classifications: 'oVirt'
+- It updates d/s bugs
+  products: 'Red Hat Enterprise Virtualization Manager'
+- It updates bug status from POST to MODIFIED only for MERGED patches
+  and the bug status should be in POST state.
+- It checks that all external bugs are MERGED before setting the bug status
+  to MODIFIED
+- It checks that the branch for the bug milestone doesn't exist
+  and only then it will set the bug status to MODIFIED
+
+  Example 1:
+  patch status: MERGED
+  bug status: POST
+  result: OK, bug status updated to 'MODIFIED'
+
+  Example 2:
+  patch status: NEW
+  bug status: other (NEW|ASSIGNED|POST|MODIFIED)
+  result: IGNORE, not relevant for patch with 'NEW' status
+
+  Example 3:
+  patch status: MERGED
+  bug status: MODIFIED
+  result: IGNORE, bug is already on 'MODIFIED' status
+
+  Example 4:
+  patch status: MERGED
+  bug status: NEW or ASSIGNED
+  result: IGNORE, not relevant for bug with 'NEW' status
+
+  Example 5:
+  patch status: MERGED
+  bug status: POST
+  external tracker patches status: at list one in POST
+  result: WARN, can't change bug status to MODIFIED \
+  (There are still open patches)
+
+  Example 6:
+  patch branch: ovirt-engine-4.1
+  bug milestone: ovirt-4.1.1 (branch doesn't exist)
+  result: OK, bug status updated to 'MODIFIED'
+
+  Example 7:
+  patch branch: ovirt-engine-4.1
+  bug milestone: ovirt-4.1.1 (branch exist)
+  result: WARN ==> bug status won't be changed to MODIFIED
+  (detected a newer branch 'ovirt-engine-4.1.1.z' that matches the milestone)
+"""
+import sys
+
+# add the lib top directory to the sys.path
+lib_dir = '/'.join(sys.path[0].split('/')[:-2]) + "/lib"
+sys.path.append(lib_dir)
+
+# import the hook_functions module
+imodule = __import__('hook_functions')
+
+# set global variables
+FNAME = sys.argv[0].split("/")[-1]
+HDR = "* Set MODIFIED"
+
+if __name__ == '__main__':
+    imodule.main(hdr=HDR, fname=FNAME)

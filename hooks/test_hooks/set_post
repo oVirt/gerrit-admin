@@ -1,0 +1,45 @@
+#!/usr/bin/env python
+"""
+set_post hook
+--------------------
+- It updates u/s bugs
+  classifications: 'oVirt'
+- It updates d/s bugs
+  products: 'Red Hat Enterprise Virtualization Manager'
+- It updates bug status to POST only for NEW patches
+  and the bug status should be in NEW OR ASSIGNED state.
+- No grades applied for this hook
+
+  Example 1:
+  patch status: NEW
+  bug status: NEW or ASSIGNED
+  classification: 'oVirt'
+    or
+  product: 'Red Hat Enterprise Virtualization Manager'
+  result: OK, bug status updated to 'POST'
+
+  Example 2:
+  patch status: NEW
+  bug status: POST
+  result: IGNORE, bug is already in 'POST' status
+
+  Example 3:
+  patch status: MERGED
+  bug status: MODIFIED
+  result: IGNORE, not relevant for bug status: 'MODIFIED'
+"""
+import sys
+
+# add the lib top directory to the sys.path
+lib_dir = '/'.join(sys.path[0].split('/')[:-2]) + "/lib"
+sys.path.append(lib_dir)
+
+# import the hook_functions module
+imodule = __import__('hook_functions')
+
+# set global variables
+FNAME = sys.argv[0].split("/")[-1]
+HDR = "* Set POST"
+
+if __name__ == '__main__':
+    imodule.main(hdr=HDR, fname=FNAME)

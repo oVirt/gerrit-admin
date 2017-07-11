@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+"""
+check_bug_url
+-------------------
+- It checks that the bug url exist
+- It checks u/s bug urls
+  classification: 'oVirt'
+- It checks d/s bug urls
+  products: 'Red Hat Enterprise Virtualization Manager'
+- It checks that the bug url is match bugzilla server (bugzilla.redhat.com)
+- It checks that the bug id is correct and available
+- It grades stable branch patches that don't have bug url with verify (-1)
+- It doesn't grade patches from the following branches:
+  'master', 'refs/meta/config', 'meta/config'
+
+  Example 1:
+  classification: oVirt
+  bug url: https://bugzilla.redhat.com/1234567
+  result: OK, classification: 'oVirt', product: 'ovirt-engine'
+
+  Example 2:
+  product: Red Hat Enterprise Virtualization Manager
+  bug url: https://bugzilla.redhat.com/1234567
+  result: OK, classification: 'Red Hat', \
+          product: 'Red Hat Enterprise Virtualization Manager'
+
+  Example 3:
+  classification: other
+  bug url: https://bugzilla.redhat.com/1234567
+  result: IGNORE, not relevant for 'other' classification
+
+  Example 4:
+  classification: oVirt
+  bug url: https://bugzilla.redhat.com/1234567890
+  result: WARN, failed to get bug info
+"""
+import sys
+
+# add the lib top directory to the sys.path
+lib_dir = '/'.join(sys.path[0].split('/')[:-2]) + "/lib"
+sys.path.append(lib_dir)
+
+# import the hook_functions module
+imodule = __import__('hook_functions')
+
+# set global variables
+FNAME = sys.argv[0].split("/")[-1]
+HDR = "* Check Bug-Url"
+
+
+if __name__ == '__main__':
+    imodule.main(hdr=HDR, fname=FNAME)

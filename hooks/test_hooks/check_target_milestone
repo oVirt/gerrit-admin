@@ -1,0 +1,49 @@
+#!/usr/bin/env python
+"""
+check_target_milestone hook
+----------------------------
+- It checks only u/s bugs (oVirt classification)
+- It checks that the current patch branch major version is the same
+  as the bug target milestone major version.
+
+  Example 1:
+  tm: '---'
+  branch_maj_version: any
+  result: WARN, target milestone: '---' (-1)
+
+  Example 2:
+  target milestone: ovirt-3.6.9
+  branch: ovirt-engine-3.6.9
+  tm_maj_version: 3.6
+  branch_maj_version: 3.6
+  result: OK, target milestone: 'ovirt-3.6.9'
+
+  Example 3:
+  target milestone: ovirt-3.6.9
+  branch: ovirt-engine-4.0.1
+  tm_maj_version: 3.6
+  branch_maj_version: 4.0
+  result: checks for clone flags
+
+  Example 4:
+  target milestone: ovirt-4.0.1
+  branch: ovirt-engine-3.6.9
+  tm_maj_version: 4.0
+  branch_maj_version: 3.6
+  result: WARN, wrong target milestone: 'ovirt-4.0.1' (-1)
+"""
+import sys
+
+# add the lib top directory to the sys.path
+lib_dir = '/'.join(sys.path[0].split('/')[:-2]) + "/lib"
+sys.path.append(lib_dir)
+
+# import the hook_functions module
+imodule = __import__('hook_functions')
+
+# set global variables
+FNAME = sys.argv[0].split("/")[-1]
+HDR = "* Check TM"
+
+if __name__ == '__main__':
+    imodule.main(hdr=HDR, fname=FNAME)

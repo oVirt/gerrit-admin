@@ -1,0 +1,38 @@
+#!/usr/bin/env python
+"""
+check_backport
+--------------
+- It checks that the current patch has been merged to all the newer branches
+  that are relevant to this patch.
+- It checks that there are no open patches
+
+  Example 1:
+  patch branch: ovirt-engine-3.6.9
+  relevant newer stable branch: ovirt-engine-3.6 (patch closed)
+  relevant newer stable branch: ovirt-engine-4.0 (patch closed)
+  relevant newer branch: master (patch closed)
+  result: OK, The patch backported to all the relevant stable branches.
+
+  Example 2:
+  patch branch: ovirt-engine-3.6.9
+  relevant newer stable branch: ovirt-engine-3.6 (patch closed)
+  relevant newer stable branch: ovirt-engine-4.0 (patch open)
+  relevant newer branch: master (patch closed)
+  result: WARN. The patch wasn't backported to all the relevant stable
+  branches. It is still open in the following branch: 'ovirt-engine-4.0'. (-1)
+"""
+import sys
+
+# add the lib top directory to the sys.path
+lib_dir = '/'.join(sys.path[0].split('/')[:-2]) + "/lib"
+sys.path.append(lib_dir)
+
+# import the hook_functions module
+imodule = __import__('hook_functions')
+
+# set global variables
+FNAME = sys.argv[0].split("/")[-1]
+HDR = "* Check Backport"
+
+if __name__ == '__main__':
+    imodule.main(hdr=HDR, fname=FNAME)
