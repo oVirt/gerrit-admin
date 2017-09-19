@@ -132,7 +132,7 @@ class Bugzilla(object):
         if ensure_product is not None and bug['product'] != ensure_product:
             raise WrongProduct(bug['product'])
         for external in bug['external_bugs']:
-            if external['ext_bz_bug_id'] == external_bug_id:
+            if external.get('ext_bz_bug_id') == str(external_bug_id):
                 return external
         return None
 
