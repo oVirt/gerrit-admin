@@ -98,11 +98,12 @@ def run_only(to_run_hooks, current_hooks):
     return to_run
 
 
-def rerun(to_rerun_hooks, args):
+def rerun(tag_val, to_rerun_hooks, args):
     """
     Handles the Rerun-Hooks tag, reruns the given hooks,
     if all is given it will rerun all the hooks
 
+    :param tag_val: string passed to "Rerun-Hooks:" tag in comment
     :param to_rerun_hooks: array with the csv string passed to the tag
     :param args: object with all the passed arguments
     :return list of hooks that will be rerun
@@ -110,7 +111,7 @@ def rerun(to_rerun_hooks, args):
     # When rerunning use only the patchset-created hooks
     current_hooks = get_hooks(os.path.join(os.environ['GIT_DIR'], 'hooks'),
                               'patchset-created')
-    to_rerun_hooks = csv_to_set(to_rerun_hooks)
+    to_rerun_hooks = csv_to_set(tag_val)
     logging.info("    Rerunning the hooks %s", to_rerun_hooks)
     to_rerun = []
     args.rerun = True
@@ -539,9 +540,6 @@ def main():
     if hook_type == "comment-added":
         logging.debug("==> COMMENT ADDED::\n" + '#' * 80 +
                       "\n{0}\n".format(known_args.comment) + '#' * 80 + '\n')
-        print_title("FINISHED '{0}'".format(hook_type))
-        logging.debug('<' * 80 + '\n')
-        return
 
     hooks = \
         get_hooks(os.path.join(os.environ['GIT_DIR'], 'hooks'), hook_type)
