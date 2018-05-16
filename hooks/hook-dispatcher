@@ -49,6 +49,17 @@ from lib import (
 )
 
 
+class LoggerWriter:
+    """Redirect writes to the given logger."""
+    def __init__(self, logger, level):
+        self.logger = logger
+        self.level = level
+
+    def write(self, message):
+        for line in message.rstrip().splitlines():
+            self.logger.log(self.level, line.rstrip())
+
+
 def csv_to_set(csv_string):
     return set([elem.strip() for elem in csv_string.split(',')])
 
@@ -497,6 +508,13 @@ def main():
                         format='%(asctime)s::'
                         + str(os.getpid())
                         + '::%(levelname)s::%(message)s')
+    # Redirect all STDOUT to the logger
+    stdout_logger = logging.getLogger("STDOUT")
+    sys.stdout = LoggerWriter(stdout_logger, logging.INFO)
+    # Redirect all STDERR to the logger
+    stderr_logger = logging.getLogger("STDERR")
+    sys.stderr = LoggerWriter(stderr_logger, logging.ERROR)
+
     parser = get_parser()
     known_args, rest = parser.parse_known_args()
     res = reduce(flatten, vars(known_args).items(), [])
