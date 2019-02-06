@@ -185,7 +185,8 @@ class Bugzilla(object):
         :return: list of bug urls or empty list
         """
 
-        regex_search = r'https*:\/\/' + bz_server.split("//")[-1] + r'\/.*\d+\b'
+        regex_search = r'^Bug-Url:[ \t]*https*:\/\/' + \
+                       bz_server.split("//")[-1] + r'\/.*\d+\b'
         regex_flags = re.IGNORECASE
 
         return re.findall(regex_search, commit, regex_flags)
