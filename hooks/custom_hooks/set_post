@@ -396,7 +396,7 @@ def main():
     # update bug status
     message, v_value = update_bug_status(
         bz_obj=bz_obj, bug_ids=bug_ids, change_status=change['status'],
-        draft=ast.literal_eval(args.is_draft.capitalize()),
+        draft=ast.literal_eval(args.private.capitalize()),
         classifications=config['CLASSIFICATIONS'], products=config['PRODUCTS']
     )
 

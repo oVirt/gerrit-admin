@@ -1026,7 +1026,7 @@ def run_hook_func(*args):
         if HOOK_NAME in ['set_post', 'set_modified']:
             return update_bug_status(
                 bz_obj=arg['bz_obj'], gerrit_obj=arg['gerrit_obj'],
-                bug_ids=arg['bug_ids'], draft=arg['args'].is_draft,
+                bug_ids=arg['bug_ids'], draft=arg['args'].private,
                 change=arg['change'], products=arg['config']['PRODUCTS'],
                 classifications=arg['config']['CLASSIFICATIONS'],
             )
@@ -1035,7 +1035,7 @@ def run_hook_func(*args):
         if HOOK_NAME == 'update_tracker':
             return update_tracker(
                 bz_obj=arg['bz_obj'], bug_ids=arg['bug_ids'],
-                draft=arg['args'].is_draft, change=arg['change'],
+                draft=arg['args'].private, change=arg['change'],
                 products=arg['config']['PRODUCTS'], branch=arg['args'].branch,
                 tracker_id=arg['config']['TRACKER_ID'],
                 classifications=arg['config']['CLASSIFICATIONS'],

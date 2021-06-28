@@ -25,7 +25,7 @@ def get_parser_pc(description=None):
         parser.add_argument('--' + arg,
                             action='store',
                             required=True)
-    for arg in ('author', 'is-draft', 'change-url', 'comment', 'uploader',
+    for arg in ('author', 'private', 'change-url', 'comment', 'uploader',
                 'patchset', 'topic'):
         parser.add_argument('--' + arg,
                             action='store',
@@ -47,7 +47,7 @@ def get_parser_comment_added(description=None):
     for arg in ('change', 'project', 'branch', 'commit'):
         parser.add_argument('--' + arg, action='store', required=True)
     for arg in (
-        'author', 'is-draft', 'change-url', 'comment', 'uploader', 'topic',
+        'author', 'private', 'change-url', 'comment', 'uploader', 'topic',
         'change-owner', 'Continuous-Integration',
     ):
         parser.add_argument('--' + arg, action='store', required=False)

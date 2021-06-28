@@ -353,7 +353,7 @@ def main():
     message, cr_value = update_tracker(
         bz_obj=bz_obj, bug_ids=bug_ids, change=change,
         tracker_id=config['TRACKER_ID'], branch=args.branch,
-        draft=args.is_draft, classifications=config['CLASSIFICATIONS'],
+        draft=args.private, classifications=config['CLASSIFICATIONS'],
         products=config['PRODUCTS'],
     )
 
