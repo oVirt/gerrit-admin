@@ -1,4 +1,4 @@
 python-virtualenv
 python-pip
 doxygen
-breathe
+breathe==4.8.0
