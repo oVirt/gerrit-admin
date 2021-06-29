@@ -185,11 +185,11 @@ class Bugzilla(object):
         :return: list of bug urls or empty list
         """
 
-        regex_search = r'^Bug-Url:[ \t]*https*:\/\/' + \
-                       bz_server.split("//")[-1] + r'\/.*\d+\b'
-        regex_flags = re.IGNORECASE
+        regex_search = r'^Bug-Url:[\s]*(https*:\/\/' + \
+            bz_server.split("//")[-1] + r'\/.*\d+\b)'
 
-        return re.findall(regex_search, commit, regex_flags)
+        return re.findall(regex_search, commit, flags=re.IGNORECASE | re.MULTILINE)
+
 
     @staticmethod
     def get_bug_ids(bug_urls):
