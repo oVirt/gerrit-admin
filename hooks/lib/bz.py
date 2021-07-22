@@ -185,10 +185,14 @@ class Bugzilla(object):
         :return: list of bug urls or empty list
         """
 
+        # greedily match 2 or more new-lines
+        blank_lines_regex = r"(?:\r?\n){2,}"
+        commit_footer = (re.split(blank_lines_regex, commit.strip()))[-1]
+
         regex_search = r'^Bug-Url:[\s]*(https*:\/\/' + \
             bz_server.split("//")[-1] + r'\/.*\d+\b)'
 
-        return re.findall(regex_search, commit, flags=re.IGNORECASE | re.MULTILINE)
+        return re.findall(regex_search, commit_footer, flags=re.IGNORECASE | re.MULTILINE)
 
 
     @staticmethod
