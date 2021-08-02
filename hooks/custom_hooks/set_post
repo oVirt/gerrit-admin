@@ -314,7 +314,7 @@ def set_status(bz_obj, bug_id, change_status, bug_status):
 
 
 def update_bug_status(
-    bz_obj, bug_ids, change_status, draft, classifications, products
+    bz_obj, bug_ids, change_status, private, classifications, products
 ):
     """
     Update bugs status only for the specified classifications and products
@@ -322,7 +322,7 @@ def update_bug_status(
     :param bz_obj: bugzilla object
     :param bug_ids: list of bug ids
     :param change_status: patch status string (i.e NEW)
-    :param draft: bool value (true if it's draft patch, false otherwise)
+    :param private: bool value (true if it's private patch, false otherwise)
     :param classifications: list of classifications
     :param products: list of products
     :return: tuple of message and cr_value
@@ -341,9 +341,9 @@ def update_bug_status(
             message = "{0}::#{1}::{2}".format(HDR, bug_id, status)
             return message, v_value
 
-        # if patch status == NEW and the patch is not draft,
+        # if patch status == NEW and the patch is not private,
         # replace it with POST
-        if change_status == 'NEW' and not draft:
+        if change_status == 'NEW' and not private:
             change_status = 'POST'
 
         classification = bug_info.classification
@@ -394,9 +394,17 @@ def main():
     )
 
     # update bug status
+    if args.private is not None:
+        logger.debug("==> PRIVATE: {0}".format(args.private))
+        logger.debug("===> TYPE private {}".format(type(args.private)))
+        private=ast.literal_eval(args.private.capitalize())
+    else:
+        logger.debug("==> NO PRIVATE:")
+        private=None
+
     message, v_value = update_bug_status(
         bz_obj=bz_obj, bug_ids=bug_ids, change_status=change['status'],
-        draft=ast.literal_eval(args.private.capitalize()),
+        private=private,
         classifications=config['CLASSIFICATIONS'], products=config['PRODUCTS']
     )
 
